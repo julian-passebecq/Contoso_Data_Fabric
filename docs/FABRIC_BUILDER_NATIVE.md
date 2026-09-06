@@ -10,13 +10,13 @@ From PowerShell on Windows:
 .\run_fabric_builder.ps1
 ```
 
-After the first restore, the launcher can skip restore:
+After the first restore:
 
 ```powershell
 .\run_fabric_builder.ps1 -NoRestore
 ```
 
-For live Fabric operations, authenticate first:
+For live Fabric operations:
 
 ```powershell
 az login
@@ -29,7 +29,7 @@ ContosoFabric.Desktop (WPF)
         |
         v
 ContosoFabric.Core
-  - FabricProject
+  - FabricProject / .fabric.json
   - ProjectFileService
   - PipelinePlanner
   - LegacyGeneratorAdapter
@@ -41,7 +41,7 @@ ContosoFabric.Fabric
   - Fabric REST v1 client
   - OneLake uploader
   - generated PySpark notebooks
-  - pipeline runner
+  - preflight + pipeline runner
         |
         v
 Microsoft Fabric
@@ -50,9 +50,7 @@ Microsoft Fabric
 
 ## Reusable `.fabric.json` projects
 
-The desktop app can create, open and save project JSON files. These files are intended to be versioned in Git and make the parameterization explicit rather than hiding it in UI state.
-
-Example: `examples/sales-small-bronze.fabric.json`.
+Projects are intended to be versioned in Git. The file stores both the data-generation contract and the selected execution range.
 
 ```json
 {
@@ -61,6 +59,7 @@ Example: `examples/sales-small-bronze.fabric.json`.
   "scale": "small",
   "years": 3,
   "rawFormat": "parquet",
+  "startFrom": "generate",
   "stopAfter": "bronze",
   "workspace": {
     "workspaceName": "YOUR FABRIC WORKSPACE",
@@ -75,49 +74,85 @@ Example: `examples/sales-small-bronze.fabric.json`.
 }
 ```
 
+Example: `examples/sales-small-bronze.fabric.json`.
+
 ### Generation parameters
 
 - `scale`: `tiny`, `small`, `medium`, `large`.
-- `ordersOverride`: optional exact order count; when set, it overrides the scale preset.
+- `ordersOverride`: optional exact order count; overrides the scale preset.
 - `startDate`: first date for generated history.
-- `years`: number of generated years, 1–20.
+- `years`: 1–20.
 - `rawFormat`: `csv`, `parquet`, or `delta`.
-- `requestedSeed`: preserved in the project contract, but the legacy generator still intentionally executes with seed `0`.
+- `requestedSeed`: preserved, but the legacy generator still intentionally executes with seed `0`.
 
-### Fabric parameters
+### Execution range
 
-- workspace name and, after discovery, workspace ID.
-- Bronze, Silver and Gold Lakehouse names.
-- `stopAfter`: `generate`, `bronze`, `silver`, `gold`, `semanticModel`, or `report`.
+`startFrom` and `stopAfter` define a contiguous range.
 
-Only stages through Gold are executable in the current native vertical slice; later stages remain visibly marked as roadmap.
+Examples:
 
-## What `Run selected pipeline` does
+```text
+Generate -> Gold   full native pipeline
+Generate -> Bronze generate + land/materialize Bronze
+Bronze   -> Bronze reuse generated/data; run only Bronze
+Silver   -> Gold   do not rerun Bronze; execute Silver then Gold
+Gold     -> Gold   run only Gold against existing Silver
+```
 
-### Stop after Generate
+Rules:
 
-1. Calls the existing C# Contoso generator directly.
-2. Applies the project start date, years, scale/custom order count and raw format.
-3. Writes the requested CSV, Parquet or Delta output locally.
-4. Does not authenticate to Fabric.
+- `startFrom=generate` creates fresh local data.
+- `startFrom=bronze` skips generation and requires a compatible local `generated/data` folder.
+- `startFrom=silver` requires the named Bronze Lakehouse to already exist and does not recreate or rerun Bronze.
+- `startFrom=gold` requires the named Silver Lakehouse to already exist and does not touch Bronze/Silver execution.
+- `startFrom` cannot be later than `stopAfter`.
+- Semantic Model and Report can be shown as roadmap endpoints but cannot be used as start stages yet.
 
-### Stop after Bronze
+This is the mechanism for running a full pipeline or only one/two selected stages without unnecessarily replaying upstream work.
 
-1. Resolves the selected workspace using the Fabric REST API.
-2. Creates the Bronze Lakehouse if it does not exist.
-3. Generates or updates the project-specific Bronze notebook.
-4. Generates Contoso data locally.
-5. Uploads the raw output to `Files/raw` in OneLake.
-6. Executes the Bronze PySpark notebook.
-7. Waits for the Fabric job instance to reach `Completed`.
+## Read-only preflight
 
-### Stop after Silver
+**Preflight** does not mutate Fabric. It checks:
 
-Runs Bronze, then creates/reuses Silver, deploys the cleaning notebook, deduplicates the core entities by business key, writes conformed Delta facts/dimensions, writes `data_quality_summary`, and waits for the notebook job to complete.
+- project validity and stage range
+- local generator inputs when Generate is selected
+- existing local raw tables for Bronze-start runs
+- Azure CLI / Fabric workspace access
+- workspace capacity assignment
+- workspace type
+- Fabric item API readability
+- required existing Bronze for Silver-start
+- required existing Silver for Gold-start
 
-### Stop after Gold
+A failed upstream/capacity check therefore occurs before Lakehouse creation or notebook execution.
 
-Runs Bronze and Silver, then creates/reuses Gold and builds:
+## Stage behavior
+
+### Generate
+
+Calls the existing C# `DatabaseGenerator.Engine` directly and applies exact order count/scale, start date, years and raw format.
+
+### Bronze
+
+1. Create/reuse Bronze Lakehouse.
+2. Create/update project-specific Bronze notebook.
+3. Upload local raw output recursively to `Files/raw`.
+4. Execute Bronze notebook.
+5. Materialize source tables as Delta and wait for the Fabric job to complete.
+
+### Silver
+
+1. Use Bronze Delta tables.
+2. Create/reuse Silver Lakehouse.
+3. Create/update Silver notebook.
+4. Deduplicate core entities by business keys.
+5. Write conformed facts/dimensions.
+6. Write `data_quality_summary`.
+7. Wait for completion.
+
+### Gold
+
+Gold contains:
 
 - `dim_customer`
 - `dim_store`
@@ -131,63 +166,64 @@ Runs Bronze and Silver, then creates/reuses Gold and builds:
 - `sales_by_store`
 - `customer_value`
 
-Amounts stay grouped by `CurrencyCode` in the first Gold model. The app deliberately does not invent a currency-conversion convention before that business rule is explicitly defined.
+Monetary aggregates remain grouped by `CurrencyCode`; the tool does not invent a reporting-currency convention.
 
-## Separate actions
+## Separate UI actions
 
-The UI deliberately separates:
-
-- **Plan** — calculate what will happen; no Fabric mutation.
-- **Generate locally** — run only the C# data motor.
-- **Prepare Fabric** — create/reuse Lakehouses and create/update notebooks, but do not execute them.
-- **Upload raw** — land already-generated files in Bronze without running transformations.
-- **Run selected pipeline** — execute from generation through the chosen endpoint.
+- **Plan** — calculate the exact selected range; no Fabric mutation.
+- **Preflight** — read-only environment/dependency validation.
+- **Generate locally** — run only the original C# data motor regardless of the saved range.
+- **Prepare selected stages** — create/reuse only selected output Lakehouses and create/update selected notebooks; required upstream Lakehouses are read, not recreated.
+- **Upload raw** — upload existing local raw files when Bronze is in the selected range.
+- **Run selected range** — execute exactly `startFrom -> stopAfter`.
 - **Cancel** — cancel local work/API polling where cancellation is supported.
 
-A stage shown as **Prepared** means its Fabric item definitions exist but its transformation notebook has not completed. **Completed** means the stage notebook run completed successfully.
+The activity log records status changes and preflight PASS/WARN/FAIL results.
 
-## Idempotency
+A stage shown as **Prepared** has its item definitions ready but its transformation notebook has not completed. **Completed** means the stage notebook completed successfully.
 
-- Lakehouses are looked up by exact display name and reused.
-- Notebooks are looked up by display name and their definitions are updated in place.
-- Bronze, Silver and Gold tables use overwrite semantics for the current educational/demo workflow.
-- The raw upload overwrites matching file paths.
-- Delta raw output is uploaded recursively, including `_delta_log` JSON files.
-- The uploader creates only directories beneath the Fabric-managed Lakehouse `Files/raw` root.
+## Idempotency and safety
+
+- Lakehouses are reused by exact display name.
+- Notebooks are updated in place by exact display name.
+- Bronze/Silver/Gold tables currently use overwrite semantics for the educational/demo workflow.
+- Raw uploads overwrite matching paths.
+- Delta raw output uploads recursively, including `_delta_log` JSON.
+- OneLake directory creation is limited to the Fabric-managed Lakehouse `Files/raw` subtree.
+- Duplicate workspace names are rejected unless the workspace ID is known.
+- Fabric 429 responses honor `Retry-After`.
+- REST long-running operations and notebook jobs are polled with explicit timeouts and cancellation.
 
 ## Authentication
 
-The desktop application currently uses `AzureCliCredential`.
-
-The app requests Fabric API and OneLake tokens through the Azure SDK. It does not store a password, client secret or Fabric token.
+The desktop app uses `AzureCliCredential`. It does not store client secrets, passwords or Fabric access tokens.
 
 ## OneLake addressing
 
-Live orchestration resolves workspace and Lakehouse GUIDs before upload/execution. Generated Spark code uses GUID-based ABFSS paths:
+Live orchestration resolves workspace and Lakehouse GUIDs. Generated Spark uses GUID-based paths:
 
 ```text
 abfss://<workspace-guid>@onelake.dfs.fabric.microsoft.com/<lakehouse-guid>/Files/...
 abfss://<workspace-guid>@onelake.dfs.fabric.microsoft.com/<lakehouse-guid>/Tables/...
 ```
 
-Using GUIDs avoids the special-character limitations of name-based ABFSS workspace paths.
+This avoids name/special-character problems in ABFSS paths.
 
-## Fabric API behavior covered
+## Verification
 
-The C# REST client handles:
+Windows CI restores and builds the complete solution and runs xUnit tests for:
 
-- workspace discovery
-- item listing and exact-name reuse
-- Lakehouse creation
-- Notebook creation and definition update
-- Fabric long-running operations (`202`, `x-ms-operation-id`, `Retry-After`)
-- run-on-demand notebook execution with `beta=false`
-- job-instance polling
-- `429 Too Many Requests` retry handling
-- cancellation and explicit timeouts
+- stage range selection
+- scale presets
+- exact order overrides
+- invalid configuration
+- fixed-seed warning behavior
+- `.fabric.json` serialization/round-trip
+
+Live tenant mutation is not performed in CI.
 
 ## Current boundary
 
-Implemented live: Generate, Bronze, Silver, Gold.
+Implemented live code path: Generate, Bronze, Silver, Gold, including partial stage ranges.
 
-Still roadmap: Direct Lake semantic model, PBIR report, Terraform workspace/capacity creation, extra scenario generators, and post-run truth/KPI reconciliation.
+Still roadmap: Direct Lake semantic model, PBIR report, Terraform workspace/capacity creation, additional scenario generators, and post-run truth/KPI reconciliation.
