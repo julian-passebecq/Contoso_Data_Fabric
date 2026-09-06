@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ContosoFabric.Core\ContosoFabric.Core.csproj" />
+    <ProjectReference Include="..\ContosoFabric.Fabric\ContosoFabric.Fabric.csproj" />
+  </ItemGroup>
+</Project>
