@@ -49,5 +49,9 @@ public sealed class LegacyGeneratorAdapter
 
         var engine = new Engine(dataPath, outputFolder, cacheFolder, config);
         await engine.Exec();
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var manifest = await GenerationManifest.FromGeneratorLogAsync(project, outputFolder, cancellationToken);
+        await manifest.SaveAsync(outputFolder, cancellationToken);
     }
 }
