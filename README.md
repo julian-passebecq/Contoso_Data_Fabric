@@ -91,7 +91,7 @@ The generated source is multi-currency. `Revenue Local` and `Gross Margin Local`
 
 ### PBIR report
 
-The application generates a deterministic **PBIR** Sales Overview report bound to the deployed semantic model by semantic-model ID. The first page includes a currency slicer, KPI card, revenue trend, product-category view and country view.
+The application generates a deterministic **PBIR** Sales Overview report bound to the deployed semantic model by semantic-model ID. The first page includes a currency slicer, KPI card, revenue trend, product-category view and country view. The generated definition uses the current 2026 shared Power BI base-theme metadata rather than bundling a custom theme resource.
 
 ## Verification
 
