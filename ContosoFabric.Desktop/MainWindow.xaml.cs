@@ -36,13 +36,7 @@ public partial class MainWindow : Window
         ScaleBox.ItemsSource = Enum.GetValues<DataScale>();
         YearsBox.ItemsSource = Enumerable.Range(1, 20).ToArray();
         FormatBox.ItemsSource = Enum.GetValues<RawFormat>();
-        StartFromBox.ItemsSource = new[]
-        {
-            PipelineStage.Generate,
-            PipelineStage.Bronze,
-            PipelineStage.Silver,
-            PipelineStage.Gold
-        };
+        StartFromBox.ItemsSource = Enum.GetValues<PipelineStage>();
         StopAfterBox.ItemsSource = Enum.GetValues<PipelineStage>();
 
         ApplyProject(CreateDefaultProject());
@@ -64,7 +58,9 @@ public partial class MainWindow : Window
         RequestedSeed: 0,
         OrdersOverride: null,
         StartDate: new DateTime(2014, 1, 1),
-        StartFrom: PipelineStage.Generate);
+        StartFrom: PipelineStage.Generate,
+        SemanticModelName: "Contoso_Sales_Model",
+        ReportName: "Contoso_Sales_Report");
 
     private FabricProject ReadProject()
     {
@@ -106,7 +102,9 @@ public partial class MainWindow : Window
             RequestedSeed: _requestedSeed,
             OrdersOverride: ordersOverride,
             StartDate: StartDatePicker.SelectedDate?.Date,
-            StartFrom: (PipelineStage)(StartFromBox.SelectedItem ?? PipelineStage.Generate));
+            StartFrom: (PipelineStage)(StartFromBox.SelectedItem ?? PipelineStage.Generate),
+            SemanticModelName: SemanticModelBox.Text.Trim(),
+            ReportName: ReportBox.Text.Trim());
     }
 
     private void ApplyProject(FabricProject project)
@@ -126,6 +124,8 @@ public partial class MainWindow : Window
             BronzeLakehouseBox.Text = project.BronzeLakehouse;
             SilverLakehouseBox.Text = project.SilverLakehouse;
             GoldLakehouseBox.Text = project.GoldLakehouse;
+            SemanticModelBox.Text = project.SemanticModelName;
+            ReportBox.Text = project.ReportName;
 
             _requestedSeed = project.RequestedSeed;
             _loadedWorkspaceName = project.Workspace.WorkspaceName;
@@ -154,6 +154,7 @@ public partial class MainWindow : Window
         ApplyProject(CreateDefaultProject());
         UpdateProjectFileLabel();
         WorkspaceStatusText.Text = "Not connected";
+        ActivityLogBox.Clear();
         RenderPlan(false);
         StatusText.Text = "New unsaved project.";
     }
@@ -264,7 +265,7 @@ public partial class MainWindow : Window
             PlanSummaryText.Text = $"{plan.Project.StartFrom} → {plan.Project.StopAfter} • {plan.OrdersCount:N0} configured orders • {plan.Project.EffectiveStartDate:yyyy-MM-dd} + {plan.Project.Years}y • {plan.Project.RawFormat}";
             WarningBorder.Visibility = plan.Warnings.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             WarningText.Text = string.Join(Environment.NewLine, plan.Warnings.Select(warning => $"• {warning}"));
-            RunPipelineButton.IsEnabled = plan.Project.StopAfter <= PipelineStage.Gold && _operationCancellation is null;
+            RunPipelineButton.IsEnabled = _operationCancellation is null;
 
             if (updateStatus)
                 StatusText.Text = "Plan ready. Nothing has been sent to Fabric.";
@@ -286,6 +287,7 @@ public partial class MainWindow : Window
             PipelineExecutionState.Running => Color.FromRgb(0, 95, 184),
             PipelineExecutionState.Completed => Color.FromRgb(20, 110, 55),
             PipelineExecutionState.Failed => Color.FromRgb(170, 30, 45),
+            PipelineExecutionState.Skipped => Color.FromRgb(110, 110, 110),
             _ when step.Implemented => Color.FromRgb(70, 70, 70),
             _ => Color.FromRgb(145, 95, 0)
         };
@@ -398,7 +400,7 @@ public partial class MainWindow : Window
             var progress = CreatePipelineProgress();
             var result = await _runner.PrepareAsync(project, progress, cancellationToken);
             WorkspaceStatusText.Text = $"{result.Workspace.DisplayName} • {result.Workspace.Id}";
-            StatusText.Text = $"Selected Fabric stages prepared for {project.StartFrom} → {project.StopAfter}. No notebook jobs were run.";
+            StatusText.Text = $"Selected Fabric definitions prepared for {project.StartFrom} → {project.StopAfter}.";
         });
     }
 
@@ -418,6 +420,7 @@ public partial class MainWindow : Window
     private async void RunPipeline_Click(object sender, RoutedEventArgs e)
     {
         _runtimeStates.Clear();
+        ActivityLogBox.Clear();
         RenderPlan(false);
         await RunBusyAsync(async cancellationToken =>
         {
@@ -428,7 +431,15 @@ public partial class MainWindow : Window
             var result = await _runner.RunToSelectedStageAsync(project, root, generatedRoot, progress, cancellationToken);
             if (!string.IsNullOrWhiteSpace(result.Provisioning.Workspace.Id))
                 WorkspaceStatusText.Text = $"{result.Provisioning.Workspace.DisplayName} • {result.Provisioning.Workspace.Id}";
-            StatusText.Text = $"Range completed: {project.StartFrom} → {project.StopAfter}. {result.UploadedFiles.Count} files uploaded; {result.Jobs.Count} Fabric notebook jobs completed.";
+
+            var biSummary = new List<string>();
+            if (result.Provisioning.SemanticModel is not null)
+                biSummary.Add($"semantic model {result.Provisioning.SemanticModel.DisplayName}");
+            if (result.Provisioning.Report is not null)
+                biSummary.Add($"report {result.Provisioning.Report.DisplayName}");
+            var suffix = biSummary.Count == 0 ? string.Empty : $" Published {string.Join(" and ", biSummary)}.";
+
+            StatusText.Text = $"Range completed: {project.StartFrom} → {project.StopAfter}. {result.UploadedFiles.Count} files uploaded; {result.Jobs.Count} notebook jobs completed.{suffix}";
         });
     }
 
@@ -447,6 +458,7 @@ public partial class MainWindow : Window
     {
         _runtimeStates[stage] = state;
         StatusText.Text = message;
+        AppendActivity($"{stage,-13} {state,-9} {message}");
         RenderPlan(false);
     }
 
@@ -464,6 +476,7 @@ public partial class MainWindow : Window
         catch (OperationCanceledException)
         {
             StatusText.Text = "Operation cancelled.";
+            AppendActivity("CANCEL Operation cancelled.");
         }
         catch (Exception ex)
         {
@@ -471,6 +484,7 @@ public partial class MainWindow : Window
             var running = _runtimeStates.FirstOrDefault(pair => pair.Value == PipelineExecutionState.Running);
             if (!running.Equals(default(KeyValuePair<PipelineStage, PipelineExecutionState>)))
                 _runtimeStates[running.Key] = PipelineExecutionState.Failed;
+            AppendActivity($"FAIL  {ex.Message}");
             RenderPlan(false);
             MessageBox.Show(this, ex.Message, "Contoso Fabric Builder", MessageBoxButton.OK, MessageBoxImage.Error);
         }
@@ -502,8 +516,8 @@ public partial class MainWindow : Window
         {
             try
             {
-                var plan = PipelinePlanner.Build(ReadProject());
-                RunPipelineButton.IsEnabled = plan.Project.StopAfter <= PipelineStage.Gold;
+                PipelinePlanner.Build(ReadProject());
+                RunPipelineButton.IsEnabled = true;
             }
             catch
             {
