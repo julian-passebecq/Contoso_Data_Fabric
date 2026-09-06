@@ -43,7 +43,7 @@ public static class ReportDefinitionFactory
             {
                 ["baseTheme"] = new JsonObject
                 {
-                    ["name"] = "CY24SU10",
+                    ["name"] = "CY26SU02",
                     ["reportVersionAtImport"] = new JsonObject
                     {
                         ["visual"] = "2.6.0",
