@@ -53,7 +53,9 @@ public sealed record FabricProject(
     int RequestedSeed = 0,
     int? OrdersOverride = null,
     DateTime? StartDate = null,
-    PipelineStage StartFrom = PipelineStage.Generate)
+    PipelineStage StartFrom = PipelineStage.Generate,
+    string SemanticModelName = "Contoso_Sales_Model",
+    string ReportName = "Contoso_Sales_Report")
 {
     [JsonIgnore]
     public DateTime EffectiveStartDate => StartDate?.Date
@@ -70,4 +72,10 @@ public sealed record FabricProject(
 
     [JsonIgnore]
     public bool IncludesGold => StartFrom <= PipelineStage.Gold && StopAfter >= PipelineStage.Gold;
+
+    [JsonIgnore]
+    public bool IncludesSemanticModel => StartFrom <= PipelineStage.SemanticModel && StopAfter >= PipelineStage.SemanticModel;
+
+    [JsonIgnore]
+    public bool IncludesReport => StartFrom <= PipelineStage.Report && StopAfter >= PipelineStage.Report;
 }
