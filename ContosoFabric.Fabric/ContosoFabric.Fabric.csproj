@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Azure.Storage.Files.DataLake" Version="12.27.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ContosoFabric.Core\ContosoFabric.Core.csproj" />
+  </ItemGroup>
+</Project>
