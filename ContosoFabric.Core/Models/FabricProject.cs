@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ContosoFabric.Core.Models;
 
 public enum BusinessScenario
@@ -52,6 +54,7 @@ public sealed record FabricProject(
     int? OrdersOverride = null,
     DateTime? StartDate = null)
 {
+    [JsonIgnore]
     public DateTime EffectiveStartDate => StartDate?.Date
         ?? new DateTime(2014, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 }
