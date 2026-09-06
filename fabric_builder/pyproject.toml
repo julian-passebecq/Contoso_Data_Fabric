@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contoso-fabric-builder"
+version = "0.1.0"
+description = "Configuration-driven Contoso data and Microsoft Fabric pipeline builder"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+fabric = [
+  "azure-identity>=1.24.0",
+  "azure-storage-file-datalake>=12.21.0",
+  "fabric-cicd>=1.3.0"
+]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+contoso-fabric = "contoso_fabric.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

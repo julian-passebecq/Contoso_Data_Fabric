@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "project": {"name": "contoso-fabric-sales", "seed": 0},
+  "business": {
+    "scenario": "sales-bi",
+    "scale": "small",
+    "years": 3,
+    "features": {"multiCurrency": true, "returns": false, "promotions": false}
+  },
+  "data": {"landing": {"format": "parquet", "compression": "snappy", "bronzeMode": "files"}},
+  "architecture": {"profile": "medallion", "stopAfter": "gold"},
+  "fabric": {
+    "workspace": {"mode": "existing", "name": "YOUR FABRIC WORKSPACE", "id": null},
+    "environment": "DEV",
+    "bronzeLakehouse": "Contoso_Bronze",
+    "silverLakehouse": "Contoso_Silver",
+    "goldLakehouse": "Contoso_Gold"
+  }
+}
