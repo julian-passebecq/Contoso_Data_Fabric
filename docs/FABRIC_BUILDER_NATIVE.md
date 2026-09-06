@@ -4,8 +4,6 @@ The Fabric edition is intentionally built around the existing .NET 8 `DatabaseGe
 
 ## Start the desktop app
 
-From PowerShell on Windows:
-
 ```powershell
 .\run_fabric_builder.ps1
 ```
@@ -22,7 +20,28 @@ For live Fabric operations:
 az login
 ```
 
-## Current vertical slice
+## Current native BI path
+
+```text
+Contoso C# generator
+        |
+        v
+Bronze Lakehouse + notebook
+        |
+        v
+Silver Lakehouse + quality notebook
+        |
+        v
+Gold Lakehouse + reconciliation
+        |
+        v
+Direct Lake TMDL semantic model
+        |
+        v
+PBIR Sales Overview report
+```
+
+Application structure:
 
 ```text
 ContosoFabric.Desktop (WPF)
@@ -38,29 +57,35 @@ ContosoFabric.Core
         |
         v
 ContosoFabric.Fabric
-  - Fabric REST v1 client
+  - Fabric REST v1 catalog/client
   - OneLake uploader
+  - Fabric definition deployer
   - generated PySpark notebooks
+  - Direct Lake TMDL factory
+  - PBIR report factory
   - preflight + pipeline runner
-        |
-        v
-Microsoft Fabric
-  Bronze -> Silver -> Gold
 ```
 
 ## Reusable `.fabric.json` projects
 
-Projects are intended to be versioned in Git. The file stores both the data-generation contract and the selected execution range.
+Projects are designed to be stored in Git. The file contains data-generation parameters, exact stage range and Fabric BI target names.
+
+See:
+
+- `examples/sales-small-bronze.fabric.json`
+- `examples/sales-small-full-bi.fabric.json`
+
+Full BI example:
 
 ```json
 {
-  "name": "contoso-sales-bronze-demo",
+  "name": "contoso-sales-full-bi",
   "scenario": "salesBi",
   "scale": "small",
   "years": 3,
   "rawFormat": "parquet",
   "startFrom": "generate",
-  "stopAfter": "bronze",
+  "stopAfter": "report",
   "workspace": {
     "workspaceName": "YOUR FABRIC WORKSPACE",
     "workspaceId": null
@@ -68,13 +93,13 @@ Projects are intended to be versioned in Git. The file stores both the data-gene
   "bronzeLakehouse": "Contoso_Bronze",
   "silverLakehouse": "Contoso_Silver",
   "goldLakehouse": "Contoso_Gold",
+  "semanticModelName": "Contoso_Sales_Model",
+  "reportName": "Contoso_Sales_Report",
   "requestedSeed": 0,
   "ordersOverride": null,
   "startDate": "2014-01-01T00:00:00"
 }
 ```
-
-Example: `examples/sales-small-bronze.fabric.json`.
 
 ### Generation parameters
 
@@ -83,76 +108,64 @@ Example: `examples/sales-small-bronze.fabric.json`.
 - `startDate`: first date for generated history.
 - `years`: 1–20.
 - `rawFormat`: `csv`, `parquet`, or `delta`.
-- `requestedSeed`: preserved, but the legacy generator still intentionally executes with seed `0`.
+- `requestedSeed`: persisted, but the original generator remains intentionally deterministic with seed `0`.
 
-### Execution range
+## Execution ranges
 
-`startFrom` and `stopAfter` define a contiguous range.
+`startFrom` and `stopAfter` define one contiguous range across:
+
+```text
+Generate -> Bronze -> Silver -> Gold -> SemanticModel -> Report
+```
 
 Examples:
 
 ```text
-Generate -> Gold   full native pipeline
-Generate -> Bronze generate + land/materialize Bronze
-Bronze   -> Bronze reuse generated/data; run only Bronze
-Silver   -> Gold   do not rerun Bronze; execute Silver then Gold
-Gold     -> Gold   run only Gold against existing Silver
+Generate      -> Report         full current BI pipeline
+Generate      -> Bronze         generation + Bronze only
+Bronze        -> Bronze         reuse local generated/data
+Silver        -> Gold           require existing Bronze
+Gold          -> Report         rebuild Gold, model and report only
+SemanticModel -> Report         require existing Gold
+Report        -> Report         require existing semantic model
 ```
 
-Rules:
-
-- `startFrom=generate` creates fresh local data.
-- `startFrom=bronze` skips generation and requires a compatible local `generated/data` folder.
-- `startFrom=silver` requires the named Bronze Lakehouse to already exist and does not recreate or rerun Bronze.
-- `startFrom=gold` requires the named Silver Lakehouse to already exist and does not touch Bronze/Silver execution.
-- `startFrom` cannot be later than `stopAfter`.
-- Semantic Model and Report can be shown as roadmap endpoints but cannot be used as start stages yet.
-
-This is the mechanism for running a full pipeline or only one/two selected stages without unnecessarily replaying upstream work.
+Upstream stages outside the range are dependencies only; they are not recreated or rerun.
 
 ## Read-only preflight
 
-**Preflight** does not mutate Fabric. It checks:
+Preflight does not mutate Fabric. Depending on the selected range it checks:
 
-- project validity and stage range
-- local generator inputs when Generate is selected
-- existing local raw tables for Bronze-start runs
-- Azure CLI / Fabric workspace access
-- workspace capacity assignment
+- project/range validity
+- local generator inputs
+- existing local raw data for Bronze-start
+- Azure CLI and Fabric workspace access
+- Fabric capacity assignment
 - workspace type
-- Fabric item API readability
-- required existing Bronze for Silver-start
-- required existing Silver for Gold-start
+- item API readability
+- existing Bronze dependency for Silver-start
+- existing Silver dependency for Gold-start
+- existing Gold dependency for SemanticModel-start
+- existing semantic-model dependency for Report-start
+- local-currency semantic-model rule
 
-A failed upstream/capacity check therefore occurs before Lakehouse creation or notebook execution.
-
-## Stage behavior
+## Data stages
 
 ### Generate
 
-Calls the existing C# `DatabaseGenerator.Engine` directly and applies exact order count/scale, start date, years and raw format.
+Calls the existing C# `DatabaseGenerator.Engine` directly.
 
 ### Bronze
 
-1. Create/reuse Bronze Lakehouse.
-2. Create/update project-specific Bronze notebook.
-3. Upload local raw output recursively to `Files/raw`.
-4. Execute Bronze notebook.
-5. Materialize source tables as Delta and wait for the Fabric job to complete.
+Creates/reuses the Bronze Lakehouse, uploads raw files to `Files/raw`, deploys the generated notebook, materializes Delta tables and waits for job completion.
 
 ### Silver
 
-1. Use Bronze Delta tables.
-2. Create/reuse Silver Lakehouse.
-3. Create/update Silver notebook.
-4. Deduplicate core entities by business keys.
-5. Write conformed facts/dimensions.
-6. Write `data_quality_summary`.
-7. Wait for completion.
+Creates conformed facts/dimensions, deduplicates business keys and writes `data_quality_summary`.
 
 ### Gold
 
-Gold contains:
+Gold builds:
 
 - `dim_customer`
 - `dim_store`
@@ -165,65 +178,117 @@ Gold contains:
 - `sales_by_product`
 - `sales_by_store`
 - `customer_value`
+- `pipeline_validation_summary`
 
-Monetary aggregates remain grouped by `CurrencyCode`; the tool does not invent a reporting-currency convention.
+Before the Gold notebook completes it reconciles:
+
+- Silver vs Gold sales row count
+- duplicate Product/Store/Customer dimension keys
+- orphan Product/Store/Customer foreign keys
+- detailed fact revenue/margin vs `sales_daily`, per currency
+
+Any failed check raises an exception. Semantic-model/report publication is sequenced after Gold, so BI artifacts are not published after a failed Gold reconciliation.
+
+## Direct Lake semantic model
+
+The semantic model is generated as a complete TMDL definition and deployed through the Fabric REST definition API.
+
+Current model tables:
+
+- `Sales` -> `fact_sales_enriched`
+- `Product` -> `dim_product`
+- `Store` -> `dim_store`
+- `Customer` -> `dim_customer`
+- `Date` -> `dim_date`
+
+Relationships:
+
+```text
+Sales.ProductKey  -> Product.ProductKey
+Sales.StoreKey    -> Store.StoreKey
+Sales.CustomerKey -> Customer.CustomerKey
+Sales.OrderDay    -> Date.Date
+```
+
+Measures:
+
+- `Revenue Local`
+- `Gross Margin Local`
+- `Gross Margin %`
+- `Orders`
+- `Customers`
+- `Units`
+- `Average Order Value Local`
+
+The Direct Lake source is a shared `AzureStorage.DataLake` expression using resolved workspace and Gold Lakehouse GUIDs.
+
+### Currency rule
+
+The source is multi-currency. The tool deliberately does not invent a reporting currency.
+
+`Revenue Local` and `Gross Margin Local` therefore use `HASONEVALUE(Sales[CurrencyCode])`: when more than one currency is in filter context the measure returns blank instead of adding unlike currencies.
+
+## PBIR Sales Overview
+
+The generated report is bound to the deployed semantic model through `definition.pbir` `byConnection` using the semantic-model ID.
+
+The first page contains:
+
+- Currency dropdown slicer
+- multi-measure `cardVisual`
+- Revenue Local trend by OrderDay
+- Revenue Local by Product category
+- Revenue Local and Gross Margin Local by Store country
+
+PBIR page and visual IDs are deterministic, so repeated generation updates the same logical report structure rather than creating random definitions.
+
+## Definition deployment semantics
+
+Semantic models and reports are reused by exact display name and updated in place.
+
+The deployer always sends the complete definition:
+
+- Semantic model format: `TMDL`
+- Report format: `PBIR`
+- Part payloads: `InlineBase64`
+- LROs: poll operation status and honor `Retry-After`
+- throttling: retry HTTP 429
+
+Duplicate same-name items are rejected instead of selecting one arbitrarily.
 
 ## Separate UI actions
 
-- **Plan** — calculate the exact selected range; no Fabric mutation.
-- **Preflight** — read-only environment/dependency validation.
-- **Generate locally** — run only the original C# data motor regardless of the saved range.
-- **Prepare selected stages** — create/reuse only selected output Lakehouses and create/update selected notebooks; required upstream Lakehouses are read, not recreated.
-- **Upload raw** — upload existing local raw files when Bronze is in the selected range.
+- **Plan** — calculate the range only.
+- **Preflight** — read-only dependency/environment validation.
+- **Generate locally** — run only the original generator.
+- **Prepare selected stages** — idempotently create/update definitions; BI definitions are deferred when selected Gold has not yet executed.
+- **Upload raw** — upload existing local raw files when Bronze is selected.
 - **Run selected range** — execute exactly `startFrom -> stopAfter`.
-- **Cancel** — cancel local work/API polling where cancellation is supported.
+- **Cancel** — cancel local/API polling where supported.
 
-The activity log records status changes and preflight PASS/WARN/FAIL results.
+Runtime states are `Ready`, `Prepared`, `Running`, `Completed`, `Failed` and `Skipped`. The activity log records transitions and preflight results.
 
-A stage shown as **Prepared** has its item definitions ready but its transformation notebook has not completed. **Completed** means the stage notebook completed successfully.
+## Authentication and OneLake
 
-## Idempotency and safety
+The desktop app uses `AzureCliCredential` and stores no passwords, client secrets or Fabric tokens.
 
-- Lakehouses are reused by exact display name.
-- Notebooks are updated in place by exact display name.
-- Bronze/Silver/Gold tables currently use overwrite semantics for the educational/demo workflow.
-- Raw uploads overwrite matching paths.
-- Delta raw output uploads recursively, including `_delta_log` JSON.
-- OneLake directory creation is limited to the Fabric-managed Lakehouse `Files/raw` subtree.
-- Duplicate workspace names are rejected unless the workspace ID is known.
-- Fabric 429 responses honor `Retry-After`.
-- REST long-running operations and notebook jobs are polled with explicit timeouts and cancellation.
-
-## Authentication
-
-The desktop app uses `AzureCliCredential`. It does not store client secrets, passwords or Fabric access tokens.
-
-## OneLake addressing
-
-Live orchestration resolves workspace and Lakehouse GUIDs. Generated Spark uses GUID-based paths:
+Live orchestration resolves workspace/Lakehouse GUIDs. Generated Spark uses GUID-based paths:
 
 ```text
 abfss://<workspace-guid>@onelake.dfs.fabric.microsoft.com/<lakehouse-guid>/Files/...
 abfss://<workspace-guid>@onelake.dfs.fabric.microsoft.com/<lakehouse-guid>/Tables/...
 ```
 
-This avoids name/special-character problems in ABFSS paths.
+## Verification boundary
 
-## Verification
+CI validates compilation and local contracts. It does not mutate a real Fabric tenant.
 
-Windows CI restores and builds the complete solution and runs xUnit tests for:
+The live code path now covers Generate through Report, but a real `az login` + capacity-backed Fabric workspace run is still required before the PR should be considered tenant-verified.
 
-- stage range selection
-- scale presets
-- exact order overrides
-- invalid configuration
-- fixed-seed warning behavior
-- `.fabric.json` serialization/round-trip
+Still roadmap after this slice:
 
-Live tenant mutation is not performed in CI.
-
-## Current boundary
-
-Implemented live code path: Generate, Bronze, Silver, Gold, including partial stage ranges.
-
-Still roadmap: Direct Lake semantic model, PBIR report, Terraform workspace/capacity creation, additional scenario generators, and post-run truth/KPI reconciliation.
+- Terraform workspace/capacity provisioning
+- Customer Experience / Data Quality / ML scenario generators
+- optional reporting-currency conversion policy
+- richer multi-page PBIR templates
+- live tenant integration tests / cleanup mode
