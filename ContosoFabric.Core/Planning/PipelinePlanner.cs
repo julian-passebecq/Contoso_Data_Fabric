@@ -20,9 +20,9 @@ public static class PipelinePlanner
     private static readonly PipelineStep[] AllSteps =
     [
         new(PipelineStage.Generate, "Generate data", "Run the existing deterministic Contoso C# generator.", true),
-        new(PipelineStage.Bronze, "Bronze", "Create the Bronze Lakehouse, land raw files, deploy the Bronze notebook and execute it.", true),
-        new(PipelineStage.Silver, "Silver", "Create Silver, deploy the cleaning/quality notebook and execute it.", true),
-        new(PipelineStage.Gold, "Gold", "Create Gold, deploy the analytics notebook and build facts, dimensions and aggregates.", true),
+        new(PipelineStage.Bronze, "Bronze", "Create/reuse Bronze, land local raw files, deploy the Bronze notebook and execute it.", true),
+        new(PipelineStage.Silver, "Silver", "Use existing Bronze tables, create/reuse Silver, deploy the cleaning/quality notebook and execute it.", true),
+        new(PipelineStage.Gold, "Gold", "Use existing Silver tables, create/reuse Gold, deploy the analytics notebook and execute it.", true),
         new(PipelineStage.SemanticModel, "Semantic model", "Create the Direct Lake semantic model.", false),
         new(PipelineStage.Report, "Power BI report", "Create and deploy the PBIR report definition.", false)
     ];
@@ -33,7 +33,7 @@ public static class PipelinePlanner
 
         var orders = project.OrdersOverride ?? OrdersForScale(project.Scale);
         var steps = AllSteps
-            .Where(step => step.Stage <= project.StopAfter)
+            .Where(step => step.Stage >= project.StartFrom && step.Stage <= project.StopAfter)
             .ToArray();
 
         var warnings = new List<string>();
@@ -45,6 +45,16 @@ public static class PipelinePlanner
         if (project.OrdersOverride is not null)
         {
             warnings.Add($"Custom order count {project.OrdersOverride:N0} overrides the {project.Scale} scale preset.");
+        }
+
+        if (project.StartFrom > PipelineStage.Generate)
+        {
+            warnings.Add($"This run starts at {project.StartFrom}. Required upstream artifacts must already exist; upstream stages will not be recreated or rerun.");
+        }
+
+        if (project.StartFrom == PipelineStage.Bronze)
+        {
+            warnings.Add("Bronze-start runs use the existing local generated/data folder as the raw source; data generation is skipped.");
         }
 
         if (project.Scenario != BusinessScenario.SalesBi)
@@ -79,11 +89,19 @@ public static class PipelinePlanner
             throw new ArgumentOutOfRangeException(nameof(project), "Custom order count must be between 1 and 50,000,000.");
         if (project.EffectiveStartDate.Year is < 1990 or > 2100)
             throw new ArgumentOutOfRangeException(nameof(project), "Start date year must be between 1990 and 2100.");
-        if (string.IsNullOrWhiteSpace(project.BronzeLakehouse))
-            throw new ArgumentException("Bronze Lakehouse name is required.", nameof(project));
-        if (project.StopAfter >= PipelineStage.Silver && string.IsNullOrWhiteSpace(project.SilverLakehouse))
-            throw new ArgumentException("Silver Lakehouse name is required for a Silver-or-later run.", nameof(project));
-        if (project.StopAfter >= PipelineStage.Gold && string.IsNullOrWhiteSpace(project.GoldLakehouse))
-            throw new ArgumentException("Gold Lakehouse name is required for a Gold-or-later run.", nameof(project));
+        if (project.StartFrom > project.StopAfter)
+            throw new ArgumentException($"StartFrom ({project.StartFrom}) cannot be later than StopAfter ({project.StopAfter}).", nameof(project));
+        if (project.StartFrom > PipelineStage.Gold)
+            throw new ArgumentException("StartFrom currently supports Generate, Bronze, Silver or Gold. Semantic model and Report are not executable yet.", nameof(project));
+        if (project.IncludesBronze && string.IsNullOrWhiteSpace(project.BronzeLakehouse))
+            throw new ArgumentException("Bronze Lakehouse name is required when Bronze is selected.", nameof(project));
+        if ((project.IncludesSilver || project.StartFrom == PipelineStage.Silver) && string.IsNullOrWhiteSpace(project.SilverLakehouse))
+            throw new ArgumentException("Silver Lakehouse name is required when Silver is selected.", nameof(project));
+        if ((project.IncludesGold || project.StartFrom == PipelineStage.Gold) && string.IsNullOrWhiteSpace(project.GoldLakehouse))
+            throw new ArgumentException("Gold Lakehouse name is required when Gold is selected.", nameof(project));
+        if (project.StartFrom == PipelineStage.Silver && string.IsNullOrWhiteSpace(project.BronzeLakehouse))
+            throw new ArgumentException("An existing Bronze Lakehouse name is required for a Silver-start run.", nameof(project));
+        if (project.StartFrom == PipelineStage.Gold && string.IsNullOrWhiteSpace(project.SilverLakehouse))
+            throw new ArgumentException("An existing Silver Lakehouse name is required for a Gold-start run.", nameof(project));
     }
 }
