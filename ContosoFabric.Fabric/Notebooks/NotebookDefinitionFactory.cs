@@ -167,10 +167,60 @@ customer_value = (
 )
 customer_value.write.format("delta").mode("overwrite").save(f"{gold_root}/customer_value")
 
+# Gold reconciliation. BI publication only happens after this notebook succeeds.
+product = spark.read.format("delta").load(f"{gold_root}/dim_product")
+store = spark.read.format("delta").load(f"{gold_root}/dim_store")
+customer = spark.read.format("delta").load(f"{gold_root}/dim_customer")
+
+silver_sales_rows = sales.count()
+gold_sales_rows = sales_enriched.count()
+product_duplicates = product.groupBy("ProductKey").count().filter(F.col("count") > 1).count()
+store_duplicates = store.groupBy("StoreKey").count().filter(F.col("count") > 1).count()
+customer_duplicates = customer.groupBy("CustomerKey").count().filter(F.col("count") > 1).count()
+orphan_products = sales_enriched.join(product.select("ProductKey"), "ProductKey", "left_anti").count()
+orphan_stores = sales_enriched.join(store.select("StoreKey"), "StoreKey", "left_anti").count()
+orphan_customers = sales_enriched.join(customer.select("CustomerKey"), "CustomerKey", "left_anti").count()
+
+fact_currency = sales_enriched.groupBy("CurrencyCode").agg(
+    F.sum("NetRevenueLocal").alias("FactRevenue"),
+    F.sum("GrossMarginLocal").alias("FactMargin")
+)
+daily_currency = sales_daily.groupBy("CurrencyCode").agg(
+    F.sum("NetRevenueLocal").alias("DailyRevenue"),
+    F.sum("GrossMarginLocal").alias("DailyMargin")
+)
+reconciliation = (
+    fact_currency.join(daily_currency, "CurrencyCode", "full")
+    .fillna(0, subset=["FactRevenue", "FactMargin", "DailyRevenue", "DailyMargin"])
+    .withColumn("RevenueDelta", F.abs(F.col("FactRevenue") - F.col("DailyRevenue")))
+    .withColumn("MarginDelta", F.abs(F.col("FactMargin") - F.col("DailyMargin")))
+)
+aggregate_mismatch_currencies = reconciliation.filter(
+    (F.col("RevenueDelta") > F.lit(0.01)) | (F.col("MarginDelta") > F.lit(0.01))
+).count()
+
+checks = [
+    ("fact_row_count_preserved", silver_sales_rows, gold_sales_rows, "PASS" if silver_sales_rows == gold_sales_rows and gold_sales_rows > 0 else "FAIL"),
+    ("product_key_duplicates", product_duplicates, 0, "PASS" if product_duplicates == 0 else "FAIL"),
+    ("store_key_duplicates", store_duplicates, 0, "PASS" if store_duplicates == 0 else "FAIL"),
+    ("customer_key_duplicates", customer_duplicates, 0, "PASS" if customer_duplicates == 0 else "FAIL"),
+    ("orphan_product_keys", orphan_products, 0, "PASS" if orphan_products == 0 else "FAIL"),
+    ("orphan_store_keys", orphan_stores, 0, "PASS" if orphan_stores == 0 else "FAIL"),
+    ("orphan_customer_keys", orphan_customers, 0, "PASS" if orphan_customers == 0 else "FAIL"),
+    ("daily_aggregate_currency_mismatches", aggregate_mismatch_currencies, 0, "PASS" if aggregate_mismatch_currencies == 0 else "FAIL"),
+]
+validation = spark.createDataFrame(checks, ["CheckName", "Observed", "Expected", "Status"]).withColumn("CheckedAtUtc", F.current_timestamp())
+validation.write.format("delta").mode("overwrite").save(f"{gold_root}/pipeline_validation_summary")
+
 print(f"Gold sales_daily: {sales_daily.count()} rows")
 print(f"Gold sales_by_product: {sales_by_product.count()} rows")
 print(f"Gold sales_by_store: {sales_by_store.count()} rows")
 print(f"Gold customer_value: {customer_value.count()} rows")
+validation.show(truncate=False)
+
+failed_checks = validation.filter(F.col("Status") == "FAIL").count()
+if failed_checks > 0:
+    raise RuntimeError(f"Gold reconciliation failed: {failed_checks} validation checks failed. BI publication is blocked.")
 """
             .Replace("__WORKSPACE_ID__", workspaceId)
             .Replace("__SILVER_ID__", silverLakehouseId)
