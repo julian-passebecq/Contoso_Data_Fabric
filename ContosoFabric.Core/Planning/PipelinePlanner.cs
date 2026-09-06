@@ -23,8 +23,8 @@ public static class PipelinePlanner
         new(PipelineStage.Bronze, "Bronze", "Create/reuse Bronze, land local raw files, deploy the Bronze notebook and execute it.", true),
         new(PipelineStage.Silver, "Silver", "Use existing Bronze tables, create/reuse Silver, deploy the cleaning/quality notebook and execute it.", true),
         new(PipelineStage.Gold, "Gold", "Use existing Silver tables, create/reuse Gold, deploy the analytics notebook and execute it.", true),
-        new(PipelineStage.SemanticModel, "Semantic model", "Create the Direct Lake semantic model.", false),
-        new(PipelineStage.Report, "Power BI report", "Create and deploy the PBIR report definition.", false)
+        new(PipelineStage.SemanticModel, "Semantic model", "Create/update a Direct Lake TMDL model over the Gold Lakehouse.", true),
+        new(PipelineStage.Report, "Power BI report", "Create/update a PBIR Sales Overview report bound to the semantic model.", true)
     ];
 
     public static PipelinePlan Build(FabricProject project)
@@ -38,34 +38,28 @@ public static class PipelinePlanner
 
         var warnings = new List<string>();
         if (project.RequestedSeed != 0)
-        {
             warnings.Add("The current Contoso generator is intentionally fixed to Random(0). The requested seed is stored but not applied yet.");
-        }
 
         if (project.OrdersOverride is not null)
-        {
             warnings.Add($"Custom order count {project.OrdersOverride:N0} overrides the {project.Scale} scale preset.");
-        }
 
         if (project.StartFrom > PipelineStage.Generate)
-        {
             warnings.Add($"This run starts at {project.StartFrom}. Required upstream artifacts must already exist; upstream stages will not be recreated or rerun.");
-        }
 
         if (project.StartFrom == PipelineStage.Bronze)
-        {
             warnings.Add("Bronze-start runs use the existing local generated/data folder as the raw source; data generation is skipped.");
-        }
+
+        if (project.StartFrom == PipelineStage.SemanticModel)
+            warnings.Add($"SemanticModel-start requires existing Gold Lakehouse '{project.GoldLakehouse}'.");
+
+        if (project.StartFrom == PipelineStage.Report)
+            warnings.Add($"Report-start requires existing semantic model '{project.SemanticModelName}'.");
 
         if (project.Scenario != BusinessScenario.SalesBi)
-        {
             warnings.Add($"{project.Scenario} is catalogued but its generator contract is not implemented yet. Live execution is currently SalesBi only.");
-        }
 
-        if (project.StopAfter > PipelineStage.Gold)
-        {
-            warnings.Add("Native end-to-end execution currently stops at Gold. Semantic model and PBIR are intentionally still marked as roadmap.");
-        }
+        if (project.IncludesSemanticModel)
+            warnings.Add("Local-currency revenue and margin measures intentionally return blank when more than one CurrencyCode is in filter context.");
 
         return new PipelinePlan(project, orders, 0, steps, warnings);
     }
@@ -91,17 +85,18 @@ public static class PipelinePlanner
             throw new ArgumentOutOfRangeException(nameof(project), "Start date year must be between 1990 and 2100.");
         if (project.StartFrom > project.StopAfter)
             throw new ArgumentException($"StartFrom ({project.StartFrom}) cannot be later than StopAfter ({project.StopAfter}).", nameof(project));
-        if (project.StartFrom > PipelineStage.Gold)
-            throw new ArgumentException("StartFrom currently supports Generate, Bronze, Silver or Gold. Semantic model and Report are not executable yet.", nameof(project));
-        if (project.IncludesBronze && string.IsNullOrWhiteSpace(project.BronzeLakehouse))
-            throw new ArgumentException("Bronze Lakehouse name is required when Bronze is selected.", nameof(project));
-        if ((project.IncludesSilver || project.StartFrom == PipelineStage.Silver) && string.IsNullOrWhiteSpace(project.SilverLakehouse))
-            throw new ArgumentException("Silver Lakehouse name is required when Silver is selected.", nameof(project));
-        if ((project.IncludesGold || project.StartFrom == PipelineStage.Gold) && string.IsNullOrWhiteSpace(project.GoldLakehouse))
-            throw new ArgumentException("Gold Lakehouse name is required when Gold is selected.", nameof(project));
-        if (project.StartFrom == PipelineStage.Silver && string.IsNullOrWhiteSpace(project.BronzeLakehouse))
-            throw new ArgumentException("An existing Bronze Lakehouse name is required for a Silver-start run.", nameof(project));
-        if (project.StartFrom == PipelineStage.Gold && string.IsNullOrWhiteSpace(project.SilverLakehouse))
-            throw new ArgumentException("An existing Silver Lakehouse name is required for a Gold-start run.", nameof(project));
+        if (!Enum.IsDefined(project.StartFrom) || !Enum.IsDefined(project.StopAfter))
+            throw new ArgumentException("StartFrom and StopAfter must be valid pipeline stages.", nameof(project));
+
+        if ((project.IncludesBronze || project.StartFrom == PipelineStage.Silver) && string.IsNullOrWhiteSpace(project.BronzeLakehouse))
+            throw new ArgumentException("Bronze Lakehouse name is required when Bronze is selected or used as a Silver dependency.", nameof(project));
+        if ((project.IncludesSilver || project.StartFrom == PipelineStage.Gold) && string.IsNullOrWhiteSpace(project.SilverLakehouse))
+            throw new ArgumentException("Silver Lakehouse name is required when Silver is selected or used as a Gold dependency.", nameof(project));
+        if ((project.IncludesGold || project.StartFrom == PipelineStage.SemanticModel) && string.IsNullOrWhiteSpace(project.GoldLakehouse))
+            throw new ArgumentException("Gold Lakehouse name is required when Gold is selected or used as a semantic-model dependency.", nameof(project));
+        if ((project.IncludesSemanticModel || project.StartFrom == PipelineStage.Report) && string.IsNullOrWhiteSpace(project.SemanticModelName))
+            throw new ArgumentException("Semantic model name is required when the semantic model is selected or used as a report dependency.", nameof(project));
+        if (project.IncludesReport && string.IsNullOrWhiteSpace(project.ReportName))
+            throw new ArgumentException("Report name is required when Report is selected.", nameof(project));
     }
 }
