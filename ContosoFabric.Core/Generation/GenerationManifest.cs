@@ -72,12 +72,15 @@ public sealed record GenerationManifest(
 
     internal static long ParseLastCounter(string log, string label)
     {
-        var pattern = $@"(?im)^.*\b{Regex.Escape(label)}\s*:\s*(?<value>[0-9][0-9,._ ]*)\s*$";
+        // DatabaseGenerator.Logger formats every payload as:
+        // yyyyMMdd HH:mm:ss | <elapsed> > <message>
+        // Anchor after '>' so "Online orders:" can never be parsed as "Orders:".
+        var pattern = $@"(?im)^.*>\s*{Regex.Escape(label)}\s*:\s*(?<value>[0-9][0-9,._ ]*)\s*$";
         var matches = Regex.Matches(log, pattern);
         if (matches.Count == 0)
             return 0;
 
-        var raw = matches[^1].Groups["value"].Value;
+        var raw = matches[matches.Count - 1].Groups["value"].Value;
         var digits = new string(raw.Where(char.IsDigit).ToArray());
         return long.TryParse(digits, out var value) ? value : 0;
     }
