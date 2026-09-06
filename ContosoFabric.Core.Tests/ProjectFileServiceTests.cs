@@ -6,7 +6,7 @@ namespace ContosoFabric.Core.Tests;
 public sealed class ProjectFileServiceTests
 {
     [Fact]
-    public async Task Project_round_trips_with_string_enums_and_exact_generation_parameters()
+    public async Task Project_round_trips_with_string_enums_generation_and_bi_parameters()
     {
         var project = new FabricProject(
             Name: "round-trip",
@@ -14,7 +14,7 @@ public sealed class ProjectFileServiceTests
             Scale: DataScale.Medium,
             Years: 5,
             RawFormat: RawFormat.Delta,
-            StopAfter: PipelineStage.Gold,
+            StopAfter: PipelineStage.Report,
             Workspace: new FabricWorkspaceTarget("Fabric Demo", "11111111-1111-1111-1111-111111111111"),
             BronzeLakehouse: "Bronze_Test",
             SilverLakehouse: "Silver_Test",
@@ -22,7 +22,9 @@ public sealed class ProjectFileServiceTests
             RequestedSeed: 0,
             OrdersOverride: 765_432,
             StartDate: new DateTime(2018, 4, 3),
-            StartFrom: PipelineStage.Silver);
+            StartFrom: PipelineStage.Silver,
+            SemanticModelName: "Sales_Model_Test",
+            ReportName: "Sales_Report_Test");
 
         var folder = Path.Combine(Path.GetTempPath(), "contoso-fabric-tests", Guid.NewGuid().ToString("N"));
         var path = Path.Combine(folder, "project.fabric.json");
@@ -35,9 +37,11 @@ public sealed class ProjectFileServiceTests
 
             Assert.Contains("\"scenario\": \"salesBi\"", json, StringComparison.Ordinal);
             Assert.Contains("\"startFrom\": \"silver\"", json, StringComparison.Ordinal);
-            Assert.Contains("\"stopAfter\": \"gold\"", json, StringComparison.Ordinal);
+            Assert.Contains("\"stopAfter\": \"report\"", json, StringComparison.Ordinal);
+            Assert.Contains("\"semanticModelName\": \"Sales_Model_Test\"", json, StringComparison.Ordinal);
+            Assert.Contains("\"reportName\": \"Sales_Report_Test\"", json, StringComparison.Ordinal);
             Assert.DoesNotContain("effectiveStartDate", json, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("includesBronze", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("includesSemanticModel", json, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(project, loaded);
             Assert.Equal(new DateTime(2018, 4, 3), loaded.EffectiveStartDate);
         }
