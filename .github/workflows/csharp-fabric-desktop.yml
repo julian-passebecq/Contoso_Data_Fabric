@@ -7,6 +7,7 @@ on:
     paths:
       - "DatabaseGenerator/**"
       - "ContosoFabric.Core/**"
+      - "ContosoFabric.Core.Tests/**"
       - "ContosoFabric.Fabric/**"
       - "ContosoFabric.Desktop/**"
       - "ContosoDGV2.sln"
@@ -15,12 +16,14 @@ on:
     paths:
       - "DatabaseGenerator/**"
       - "ContosoFabric.Core/**"
+      - "ContosoFabric.Core.Tests/**"
       - "ContosoFabric.Fabric/**"
       - "ContosoFabric.Desktop/**"
       - "ContosoDGV2.sln"
+      - ".github/workflows/csharp-fabric-desktop.yml"
 
 jobs:
-  build:
+  build-and-test:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,3 +32,4 @@ jobs:
           dotnet-version: "8.0.x"
       - run: dotnet restore ContosoDGV2.sln
       - run: dotnet build ContosoDGV2.sln -c Release --no-restore
+      - run: dotnet test ContosoFabric.Core.Tests\ContosoFabric.Core.Tests.csproj -c Release --no-build --no-restore --logger "console;verbosity=normal"
