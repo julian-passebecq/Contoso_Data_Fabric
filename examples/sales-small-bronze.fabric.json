@@ -4,6 +4,7 @@
   "scale": "small",
   "years": 3,
   "rawFormat": "parquet",
+  "startFrom": "generate",
   "stopAfter": "bronze",
   "workspace": {
     "workspaceName": "YOUR FABRIC WORKSPACE",
