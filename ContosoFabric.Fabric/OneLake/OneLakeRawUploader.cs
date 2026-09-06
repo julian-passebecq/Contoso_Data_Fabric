@@ -61,30 +61,38 @@ public sealed class OneLakeRawUploader
         var rawRoot = $"{itemRoot}/Files/raw";
         var createdDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        async Task EnsureDirectoryAsync(string remoteDirectory)
+        async Task EnsureDirectoryTreeAsync(string remoteDirectory)
         {
-            if (!createdDirectories.Add(remoteDirectory))
+            if (createdDirectories.Contains(remoteDirectory))
                 return;
-            await workspace.GetDirectoryClient(remoteDirectory).CreateIfNotExistsAsync(cancellationToken: cancellationToken);
+
+            var segments = remoteDirectory.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var current = string.Empty;
+            foreach (var segment in segments)
+            {
+                current = string.IsNullOrEmpty(current) ? segment : $"{current}/{segment}";
+                if (!createdDirectories.Add(current))
+                    continue;
+                await workspace.GetDirectoryClient(current).CreateIfNotExistsAsync(cancellationToken: cancellationToken);
+            }
         }
 
-        await EnsureDirectoryAsync(rawRoot);
+        await EnsureDirectoryTreeAsync(rawRoot);
 
         var uploaded = new List<string>(candidates.Length);
         foreach (var localFile in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var relative = Path.GetRelativePath(localRoot, localFile).Replace('\\', '/');
-            var remoteRelative = relative;
             var relativeDirectory = Path.GetDirectoryName(relative)?.Replace('\\', '/');
             var remoteDirectory = string.IsNullOrWhiteSpace(relativeDirectory) ? rawRoot : $"{rawRoot}/{relativeDirectory}";
-            await EnsureDirectoryAsync(remoteDirectory);
+            await EnsureDirectoryTreeAsync(remoteDirectory);
 
-            progress?.Report($"Uploading raw/{remoteRelative}");
-            var remote = workspace.GetFileClient($"{rawRoot}/{remoteRelative}");
+            progress?.Report($"Uploading raw/{relative}");
+            var remote = workspace.GetFileClient($"{rawRoot}/{relative}");
             await using var stream = File.OpenRead(localFile);
             await remote.UploadAsync(stream, overwrite: true, cancellationToken: cancellationToken);
-            uploaded.Add(remoteRelative);
+            uploaded.Add(relative);
         }
 
         progress?.Report($"Uploaded {uploaded.Count} raw files to OneLake.");
