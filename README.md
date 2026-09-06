@@ -7,10 +7,10 @@ This repository keeps the original **Contoso Data Generator V2** C# engine and a
 Active implementation:
 
 - `DatabaseGenerator` — original deterministic C# data motor
-- `ContosoFabric.Core` — project files, validation and range planning
+- `ContosoFabric.Core` — project files, validation, truth manifest and range planning
 - `ContosoFabric.Fabric` — Fabric REST, OneLake, notebooks, Direct Lake TMDL and PBIR
 - `ContosoFabric.Desktop` — native WPF application
-- `ContosoFabric.Core.Tests` — planner/definition/notebook contract tests
+- `ContosoFabric.Core.Tests` — planner/definition/notebook/lineage contract tests
 
 The current Sales/BI path is:
 
@@ -55,13 +55,33 @@ Examples:
 
 See [`docs/FABRIC_BUILDER_NATIVE.md`](docs/FABRIC_BUILDER_NATIVE.md) for the architecture and exact behavior.
 
+## Validation and lineage
+
+A normal Generate-to-BI run now carries validation through the whole path:
+
+```text
+DatabaseGenerator.Engine
+    -> truth_manifest.json
+    -> Bronze count reconciliation
+    -> Silver quality summary
+    -> Gold dimensional/aggregate reconciliation
+    -> Direct Lake TMDL
+    -> PBIR report
+```
+
+After the original C# engine finishes, the adapter reads the engine's final `Orders:` and `OrdersRows:` counters and writes `generated/data/truth_manifest.json`. The parser is anchored to the legacy logger payload format, so `Online orders:` cannot be confused with the total order counter.
+
+The OneLake uploader lands the manifest alongside CSV/Parquet/Delta raw data. Bronze writes `bronze_validation_summary` and compares materialized `orders` / `orderrows` counts to the engine's actual counters. If the current generated run disagrees, downstream execution is blocked. Legacy/manual Bronze-start folders without a manifest remain supported with an explicit notebook warning.
+
+Silver writes `data_quality_summary` while deduplicating conformed entities by their business keys.
+
+Gold writes `pipeline_validation_summary` and validates row-count preservation, duplicate dimension keys, orphan dimension references, and detailed-vs-daily revenue/margin reconciliation by currency. Failed Gold validation raises an error and blocks semantic-model/report publication.
+
 ## Current BI output
 
 ### Gold
 
 Gold produces conformed dimensions/facts and analytics tables including `fact_sales_enriched`, `sales_daily`, product/store aggregates and `customer_value`.
-
-Before the BI layer is published, the Gold notebook writes `pipeline_validation_summary` and checks row-count preservation, duplicate dimension keys, orphan dimension references, and detailed-vs-daily revenue/margin reconciliation by currency. Failed validation raises an error and blocks semantic-model/report publication.
 
 ### Direct Lake semantic model
 
@@ -75,9 +95,15 @@ The application generates a deterministic **PBIR** Sales Overview report bound t
 
 ## Verification
 
-Windows GitHub Actions restores and builds the complete solution and runs xUnit contract tests. The latest functional pass builds with **0 warnings / 0 errors** and passes **21 / 21 tests**.
+Windows GitHub Actions restores and builds the complete solution and runs xUnit contract tests. The latest functional head builds with:
 
-The tests cover range planning, project JSON persistence, Direct Lake TMDL construction, PBIR structure/binding, deterministic visual IDs, the multi-currency guard and Gold reconciliation/failure-gate generation.
+```text
+0 warnings
+0 errors
+24 / 24 tests passed
+```
+
+The tests cover range planning, project JSON persistence, Direct Lake TMDL construction, PBIR structure/binding, deterministic visual IDs, the multi-currency guard, generator-log truth parsing, Bronze manifest validation and Gold reconciliation/failure-gate generation.
 
 CI deliberately does **not** mutate a real Fabric tenant. Live validation still requires an authenticated tenant and a capacity-backed Fabric workspace.
 
