@@ -6,7 +6,7 @@ namespace ContosoFabric.Core.Tests;
 public sealed class PipelinePlannerTests
 {
     [Fact]
-    public void Bronze_stop_contains_only_generate_and_bronze()
+    public void Bronze_stop_from_generate_contains_generate_and_bronze()
     {
         var plan = PipelinePlanner.Build(Project(stopAfter: PipelineStage.Bronze));
 
@@ -16,7 +16,7 @@ public sealed class PipelinePlannerTests
     }
 
     [Fact]
-    public void Gold_stop_contains_all_native_execution_stages()
+    public void Gold_stop_from_generate_contains_all_native_execution_stages()
     {
         var plan = PipelinePlanner.Build(Project(stopAfter: PipelineStage.Gold));
 
@@ -24,6 +24,42 @@ public sealed class PipelinePlannerTests
             new[] { PipelineStage.Generate, PipelineStage.Bronze, PipelineStage.Silver, PipelineStage.Gold },
             plan.Steps.Select(step => step.Stage).ToArray());
         Assert.All(plan.Steps, step => Assert.True(step.Implemented));
+    }
+
+    [Fact]
+    public void Silver_to_gold_contains_only_two_selected_stages()
+    {
+        var plan = PipelinePlanner.Build(Project(startFrom: PipelineStage.Silver, stopAfter: PipelineStage.Gold));
+
+        Assert.Equal(
+            new[] { PipelineStage.Silver, PipelineStage.Gold },
+            plan.Steps.Select(step => step.Stage).ToArray());
+        Assert.Contains(plan.Warnings, warning => warning.Contains("upstream", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Gold_only_is_a_valid_single_stage_range()
+    {
+        var plan = PipelinePlanner.Build(Project(startFrom: PipelineStage.Gold, stopAfter: PipelineStage.Gold));
+
+        Assert.Single(plan.Steps);
+        Assert.Equal(PipelineStage.Gold, plan.Steps[0].Stage);
+    }
+
+    [Fact]
+    public void Start_from_later_than_stop_after_is_rejected()
+    {
+        var project = Project(startFrom: PipelineStage.Gold, stopAfter: PipelineStage.Silver);
+
+        Assert.Throws<ArgumentException>(() => PipelinePlanner.Build(project));
+    }
+
+    [Fact]
+    public void Roadmap_stages_cannot_be_used_as_start_stage()
+    {
+        var project = Project(startFrom: PipelineStage.SemanticModel, stopAfter: PipelineStage.SemanticModel);
+
+        Assert.Throws<ArgumentException>(() => PipelinePlanner.Build(project));
     }
 
     [Fact]
@@ -63,6 +99,7 @@ public sealed class PipelinePlannerTests
     }
 
     private static FabricProject Project(
+        PipelineStage startFrom = PipelineStage.Generate,
         PipelineStage stopAfter = PipelineStage.Bronze,
         DataScale scale = DataScale.Small,
         int? ordersOverride = null,
@@ -77,5 +114,6 @@ public sealed class PipelinePlannerTests
             Workspace: new FabricWorkspaceTarget("Demo"),
             RequestedSeed: requestedSeed,
             OrdersOverride: ordersOverride,
-            StartDate: new DateTime(2014, 1, 1));
+            StartDate: new DateTime(2014, 1, 1),
+            StartFrom: startFrom);
 }
