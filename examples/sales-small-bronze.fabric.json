@@ -13,6 +13,8 @@
   "bronzeLakehouse": "Contoso_Bronze",
   "silverLakehouse": "Contoso_Silver",
   "goldLakehouse": "Contoso_Gold",
+  "semanticModelName": "Contoso_Sales_Model",
+  "reportName": "Contoso_Sales_Report",
   "requestedSeed": 0,
   "ordersOverride": null,
   "startDate": "2014-01-01T00:00:00"
