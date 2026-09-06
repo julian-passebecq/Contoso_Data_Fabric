@@ -59,25 +59,38 @@ public sealed class OneLakeRawUploader
         var workspace = service.GetFileSystemClient(workspaceRef);
         var itemRoot = guidPath ? lakehouseRef : $"{lakehouseRef}.Lakehouse";
         var rawRoot = $"{itemRoot}/Files/raw";
-        var createdDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        async Task EnsureDirectoryTreeAsync(string remoteDirectory)
+        // The Lakehouse item and its Files container are Fabric-managed. Create the raw
+        // directory directly, then create only descendants beneath raw as required for
+        // Delta folders such as sales/_delta_log.
+        await workspace.GetDirectoryClient(rawRoot)
+            .CreateIfNotExistsAsync(cancellationToken: cancellationToken);
+
+        var createdRelativeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        async Task EnsureRelativeDirectoryTreeAsync(string? relativeDirectory)
         {
-            if (createdDirectories.Contains(remoteDirectory))
+            if (string.IsNullOrWhiteSpace(relativeDirectory))
                 return;
 
-            var segments = remoteDirectory.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            var current = string.Empty;
+            var segments = relativeDirectory
+                .Replace('\\', '/')
+                .Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+            var relativeCurrent = string.Empty;
             foreach (var segment in segments)
             {
-                current = string.IsNullOrEmpty(current) ? segment : $"{current}/{segment}";
-                if (!createdDirectories.Add(current))
+                relativeCurrent = string.IsNullOrEmpty(relativeCurrent)
+                    ? segment
+                    : $"{relativeCurrent}/{segment}";
+
+                if (!createdRelativeDirectories.Add(relativeCurrent))
                     continue;
-                await workspace.GetDirectoryClient(current).CreateIfNotExistsAsync(cancellationToken: cancellationToken);
+
+                await workspace.GetDirectoryClient($"{rawRoot}/{relativeCurrent}")
+                    .CreateIfNotExistsAsync(cancellationToken: cancellationToken);
             }
         }
-
-        await EnsureDirectoryTreeAsync(rawRoot);
 
         var uploaded = new List<string>(candidates.Length);
         foreach (var localFile in candidates)
@@ -85,8 +98,7 @@ public sealed class OneLakeRawUploader
             cancellationToken.ThrowIfCancellationRequested();
             var relative = Path.GetRelativePath(localRoot, localFile).Replace('\\', '/');
             var relativeDirectory = Path.GetDirectoryName(relative)?.Replace('\\', '/');
-            var remoteDirectory = string.IsNullOrWhiteSpace(relativeDirectory) ? rawRoot : $"{rawRoot}/{relativeDirectory}";
-            await EnsureDirectoryTreeAsync(remoteDirectory);
+            await EnsureRelativeDirectoryTreeAsync(relativeDirectory);
 
             progress?.Report($"Uploading raw/{relative}");
             var remote = workspace.GetFileClient($"{rawRoot}/{relative}");
