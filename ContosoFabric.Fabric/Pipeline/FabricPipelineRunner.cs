@@ -9,6 +9,7 @@ namespace ContosoFabric.Fabric.Pipeline;
 public enum PipelineExecutionState
 {
     Pending,
+    Prepared,
     Running,
     Completed,
     Failed,
@@ -58,8 +59,6 @@ public sealed class FabricPipelineRunner
     {
         EnsureLiveSupported(project);
         var workspace = await _api.ResolveWorkspaceAsync(project.Workspace, cancellationToken);
-        var stringProgress = new Progress<string>(message =>
-            progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Running, message)));
 
         FabricItemInfo? bronze = null;
         FabricItemInfo? silver = null;
@@ -70,38 +69,44 @@ public sealed class FabricPipelineRunner
 
         if (project.StopAfter >= PipelineStage.Bronze)
         {
+            var messages = StageMessages(progress, PipelineStage.Bronze);
             progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Running, "Preparing Bronze Fabric items"));
-            bronze = await _api.EnsureLakehouseAsync(workspace.Id, project.BronzeLakehouse, stringProgress, cancellationToken);
+            bronze = await _api.EnsureLakehouseAsync(workspace.Id, project.BronzeLakehouse, messages, cancellationToken);
             bronzeNotebook = await _api.EnsureNotebookAsync(
                 workspace.Id,
                 NotebookDefinitionFactory.NotebookName(project, PipelineStage.Bronze),
                 NotebookDefinitionFactory.Bronze(project, workspace.Id, bronze.Id),
-                stringProgress,
+                messages,
                 cancellationToken);
+            progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Prepared, "Bronze Lakehouse and notebook prepared"));
         }
 
         if (project.StopAfter >= PipelineStage.Silver)
         {
+            var messages = StageMessages(progress, PipelineStage.Silver);
             progress?.Report(new PipelineProgress(PipelineStage.Silver, PipelineExecutionState.Running, "Preparing Silver Fabric items"));
-            silver = await _api.EnsureLakehouseAsync(workspace.Id, project.SilverLakehouse, stringProgress, cancellationToken);
+            silver = await _api.EnsureLakehouseAsync(workspace.Id, project.SilverLakehouse, messages, cancellationToken);
             silverNotebook = await _api.EnsureNotebookAsync(
                 workspace.Id,
                 NotebookDefinitionFactory.NotebookName(project, PipelineStage.Silver),
                 NotebookDefinitionFactory.Silver(workspace.Id, bronze!.Id, silver.Id),
-                stringProgress,
+                messages,
                 cancellationToken);
+            progress?.Report(new PipelineProgress(PipelineStage.Silver, PipelineExecutionState.Prepared, "Silver Lakehouse and notebook prepared"));
         }
 
         if (project.StopAfter >= PipelineStage.Gold)
         {
+            var messages = StageMessages(progress, PipelineStage.Gold);
             progress?.Report(new PipelineProgress(PipelineStage.Gold, PipelineExecutionState.Running, "Preparing Gold Fabric items"));
-            gold = await _api.EnsureLakehouseAsync(workspace.Id, project.GoldLakehouse, stringProgress, cancellationToken);
+            gold = await _api.EnsureLakehouseAsync(workspace.Id, project.GoldLakehouse, messages, cancellationToken);
             goldNotebook = await _api.EnsureNotebookAsync(
                 workspace.Id,
                 NotebookDefinitionFactory.NotebookName(project, PipelineStage.Gold),
                 NotebookDefinitionFactory.Gold(workspace.Id, silver!.Id, gold.Id),
-                stringProgress,
+                messages,
                 cancellationToken);
+            progress?.Report(new PipelineProgress(PipelineStage.Gold, PipelineExecutionState.Prepared, "Gold Lakehouse and notebook prepared"));
         }
 
         return new FabricProvisioningResult(workspace, bronze, silver, gold, bronzeNotebook, silverNotebook, goldNotebook);
@@ -118,10 +123,11 @@ public sealed class FabricPipelineRunner
         EnsureLiveSupported(project);
 
         var workspace = await _api.ResolveWorkspaceAsync(project.Workspace, cancellationToken);
-        var messageProgress = new Progress<string>(message =>
-            progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Running, message)));
-        var bronze = await _api.EnsureLakehouseAsync(workspace.Id, project.BronzeLakehouse, messageProgress, cancellationToken);
-        return await _uploader.UploadAsync(project.RawFormat, generatedDataFolder, workspace.Id, bronze.Id, messageProgress, cancellationToken);
+        var messages = StageMessages(progress, PipelineStage.Bronze);
+        var bronze = await _api.EnsureLakehouseAsync(workspace.Id, project.BronzeLakehouse, messages, cancellationToken);
+        var uploaded = await _uploader.UploadAsync(project.RawFormat, generatedDataFolder, workspace.Id, bronze.Id, messages, cancellationToken);
+        progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Prepared, $"{uploaded.Count} raw files uploaded; Bronze transform has not been run"));
+        return uploaded;
     }
 
     public async Task<FabricPipelineRunResult> RunToSelectedStageAsync(
@@ -151,8 +157,7 @@ public sealed class FabricPipelineRunner
         }
 
         var prepared = await PrepareAsync(project, progress, cancellationToken);
-        var uploadMessages = new Progress<string>(message =>
-            progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Running, message)));
+        var uploadMessages = StageMessages(progress, PipelineStage.Bronze);
         var uploaded = await _uploader.UploadAsync(
             project.RawFormat,
             dataFolder,
@@ -162,8 +167,8 @@ public sealed class FabricPipelineRunner
             cancellationToken);
 
         var jobs = new List<FabricJobResult>();
-        var apiMessagesBronze = new Progress<string>(message =>
-            progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Running, message)));
+        var apiMessagesBronze = StageMessages(progress, PipelineStage.Bronze);
+        progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Running, "Executing Bronze notebook"));
         var bronzeJob = await _api.RunNotebookAndWaitAsync(
             prepared.Workspace.Id,
             prepared.BronzeNotebook!.Id,
@@ -175,8 +180,8 @@ public sealed class FabricPipelineRunner
 
         if (project.StopAfter >= PipelineStage.Silver)
         {
-            var apiMessages = new Progress<string>(message =>
-                progress?.Report(new PipelineProgress(PipelineStage.Silver, PipelineExecutionState.Running, message)));
+            var apiMessages = StageMessages(progress, PipelineStage.Silver);
+            progress?.Report(new PipelineProgress(PipelineStage.Silver, PipelineExecutionState.Running, "Executing Silver notebook"));
             var silverJob = await _api.RunNotebookAndWaitAsync(
                 prepared.Workspace.Id,
                 prepared.SilverNotebook!.Id,
@@ -189,8 +194,8 @@ public sealed class FabricPipelineRunner
 
         if (project.StopAfter >= PipelineStage.Gold)
         {
-            var apiMessages = new Progress<string>(message =>
-                progress?.Report(new PipelineProgress(PipelineStage.Gold, PipelineExecutionState.Running, message)));
+            var apiMessages = StageMessages(progress, PipelineStage.Gold);
+            progress?.Report(new PipelineProgress(PipelineStage.Gold, PipelineExecutionState.Running, "Executing Gold notebook"));
             var goldJob = await _api.RunNotebookAndWaitAsync(
                 prepared.Workspace.Id,
                 prepared.GoldNotebook!.Id,
@@ -203,6 +208,12 @@ public sealed class FabricPipelineRunner
 
         return new FabricPipelineRunResult(prepared, uploaded, jobs, dataFolder);
     }
+
+    private static IProgress<string> StageMessages(
+        IProgress<PipelineProgress>? progress,
+        PipelineStage stage)
+        => new Progress<string>(message =>
+            progress?.Report(new PipelineProgress(stage, PipelineExecutionState.Running, message)));
 
     private static void EnsureLiveSupported(FabricProject project)
     {
