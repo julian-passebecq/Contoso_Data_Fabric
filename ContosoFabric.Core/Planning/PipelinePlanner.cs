@@ -20,11 +20,11 @@ public static class PipelinePlanner
     private static readonly PipelineStep[] AllSteps =
     [
         new(PipelineStage.Generate, "Generate data", "Run the existing deterministic Contoso C# generator.", true),
-        new(PipelineStage.Bronze, "Bronze", "Land raw files in OneLake and materialize Bronze Delta tables.", true),
-        new(PipelineStage.Silver, "Silver", "Clean, deduplicate and standardize the core entities.", false),
-        new(PipelineStage.Gold, "Gold", "Build analytics-ready facts, dimensions and aggregates.", false),
+        new(PipelineStage.Bronze, "Bronze", "Create the Bronze Lakehouse, land raw files, deploy the Bronze notebook and execute it.", true),
+        new(PipelineStage.Silver, "Silver", "Create Silver, deploy the cleaning/quality notebook and execute it.", true),
+        new(PipelineStage.Gold, "Gold", "Create Gold, deploy the analytics notebook and build facts, dimensions and aggregates.", true),
         new(PipelineStage.SemanticModel, "Semantic model", "Create the Direct Lake semantic model.", false),
-        new(PipelineStage.Report, "Power BI report", "Create and deploy the report definition.", false)
+        new(PipelineStage.Report, "Power BI report", "Create and deploy the PBIR report definition.", false)
     ];
 
     public static PipelinePlan Build(FabricProject project)
@@ -52,16 +52,25 @@ public static class PipelinePlanner
 
         if (project.Scenario != BusinessScenario.SalesBi)
         {
-            warnings.Add($"{project.Scenario} is part of the roadmap but the V1 generator contract is SalesBi.");
+            warnings.Add($"{project.Scenario} is catalogued but its generator contract is not implemented yet. Live execution is currently SalesBi only.");
         }
 
-        if (steps.Any(step => !step.Implemented))
+        if (project.StopAfter > PipelineStage.Gold)
         {
-            warnings.Add("The planner can show later Fabric stages before their deployer is implemented; the UI marks those stages clearly.");
+            warnings.Add("Native end-to-end execution currently stops at Gold. Semantic model and PBIR are intentionally still marked as roadmap.");
         }
 
         return new PipelinePlan(project, orders, 0, steps, warnings);
     }
+
+    public static int OrdersForScale(DataScale scale) => scale switch
+    {
+        DataScale.Tiny => 10_000,
+        DataScale.Small => 100_000,
+        DataScale.Medium => 500_000,
+        DataScale.Large => 2_000_000,
+        _ => throw new ArgumentOutOfRangeException(nameof(scale))
+    };
 
     private static void Validate(FabricProject project)
     {
@@ -69,5 +78,11 @@ public static class PipelinePlanner
             throw new ArgumentException("Project name is required.", nameof(project));
         if (project.Years is < 1 or > 20)
             throw new ArgumentOutOfRangeException(nameof(project), "Years must be between 1 and 20.");
+        if (string.IsNullOrWhiteSpace(project.BronzeLakehouse))
+            throw new ArgumentException("Bronze Lakehouse name is required.", nameof(project));
+        if (project.StopAfter >= PipelineStage.Silver && string.IsNullOrWhiteSpace(project.SilverLakehouse))
+            throw new ArgumentException("Silver Lakehouse name is required for a Silver-or-later run.", nameof(project));
+        if (project.StopAfter >= PipelineStage.Gold && string.IsNullOrWhiteSpace(project.GoldLakehouse))
+            throw new ArgumentException("Gold Lakehouse name is required for a Gold-or-later run.", nameof(project));
     }
 }

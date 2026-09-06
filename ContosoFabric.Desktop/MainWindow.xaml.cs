@@ -4,18 +4,25 @@ using System.Windows.Media;
 using ContosoFabric.Core.Generation;
 using ContosoFabric.Core.Models;
 using ContosoFabric.Core.Planning;
+using ContosoFabric.Fabric.Api;
 using ContosoFabric.Fabric.OneLake;
+using ContosoFabric.Fabric.Pipeline;
 
 namespace ContosoFabric.Desktop;
 
 public partial class MainWindow : Window
 {
     private readonly LegacyGeneratorAdapter _generator = new();
+    private readonly FabricRestClient _fabricApi = new();
     private readonly OneLakeRawUploader _uploader = new();
+    private readonly FabricPipelineRunner _runner;
+    private readonly Dictionary<PipelineStage, PipelineExecutionState> _runtimeStates = new();
+    private CancellationTokenSource? _operationCancellation;
 
     public MainWindow()
     {
         InitializeComponent();
+        _runner = new FabricPipelineRunner(_fabricApi, _generator, _uploader);
 
         ScenarioBox.ItemsSource = Enum.GetValues<BusinessScenario>();
         ScaleBox.ItemsSource = Enum.GetValues<DataScale>();
@@ -29,11 +36,16 @@ public partial class MainWindow : Window
         FormatBox.SelectedItem = RawFormat.Parquet;
         StopAfterBox.SelectedItem = PipelineStage.Bronze;
 
+        Closed += (_, _) => _fabricApi.Dispose();
         RenderPlan();
     }
 
     private FabricProject ReadProject()
     {
+        var selectedWorkspace = WorkspaceBox.SelectedItem as FabricWorkspaceInfo;
+        var workspaceName = selectedWorkspace?.DisplayName ?? WorkspaceBox.Text.Trim();
+        var workspaceId = selectedWorkspace?.Id;
+
         return new FabricProject(
             Name: ProjectNameBox.Text.Trim(),
             Scenario: (BusinessScenario)(ScenarioBox.SelectedItem ?? BusinessScenario.SalesBi),
@@ -41,19 +53,28 @@ public partial class MainWindow : Window
             Years: (int)(YearsBox.SelectedItem ?? 3),
             RawFormat: (RawFormat)(FormatBox.SelectedItem ?? RawFormat.Parquet),
             StopAfter: (PipelineStage)(StopAfterBox.SelectedItem ?? PipelineStage.Bronze),
-            Workspace: new FabricWorkspaceTarget(WorkspaceBox.Text.Trim()),
-            BronzeLakehouse: BronzeLakehouseBox.Text.Trim());
+            Workspace: new FabricWorkspaceTarget(workspaceName, workspaceId),
+            BronzeLakehouse: BronzeLakehouseBox.Text.Trim(),
+            SilverLakehouse: SilverLakehouseBox.Text.Trim(),
+            GoldLakehouse: GoldLakehouseBox.Text.Trim());
     }
 
-    private void Plan_Click(object sender, RoutedEventArgs e) => RenderPlan();
+    private void Plan_Click(object sender, RoutedEventArgs e)
+    {
+        _runtimeStates.Clear();
+        RenderPlan();
+    }
 
     private void StopAfterBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (IsLoaded)
+        {
+            _runtimeStates.Clear();
             RenderPlan();
+        }
     }
 
-    private void RenderPlan()
+    private void RenderPlan(bool updateStatus = true)
     {
         try
         {
@@ -64,10 +85,12 @@ public partial class MainWindow : Window
                 PipelinePanel.Children.Add(CreateStepCard(step));
 
             PlanSummaryText.Text = $"{plan.OrdersCount:N0} orders • {plan.Project.RawFormat} • stop after {plan.Project.StopAfter}";
-
             WarningBorder.Visibility = plan.Warnings.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             WarningText.Text = string.Join(Environment.NewLine, plan.Warnings.Select(warning => $"• {warning}"));
-            StatusText.Text = "Plan ready. Nothing has been sent to Fabric.";
+            RunPipelineButton.IsEnabled = plan.Project.StopAfter <= PipelineStage.Gold && _operationCancellation is null;
+
+            if (updateStatus)
+                StatusText.Text = "Plan ready. Nothing has been sent to Fabric.";
         }
         catch (Exception ex)
         {
@@ -75,29 +98,22 @@ public partial class MainWindow : Window
         }
     }
 
-    private static Border CreateStepCard(PipelineStep step)
+    private Border CreateStepCard(PipelineStep step)
     {
-        var title = new TextBlock
+        var runtimeState = _runtimeStates.TryGetValue(step.Stage, out var state) ? state : (PipelineExecutionState?)null;
+        var statusText = runtimeState?.ToString() ?? (step.Implemented ? "Ready" : "Roadmap");
+        var statusColor = runtimeState switch
         {
-            Text = step.Title,
-            FontSize = 15,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = Brushes.Black
+            PipelineExecutionState.Running => Color.FromRgb(0, 95, 184),
+            PipelineExecutionState.Completed => Color.FromRgb(20, 110, 55),
+            PipelineExecutionState.Failed => Color.FromRgb(170, 30, 45),
+            _ when step.Implemented => Color.FromRgb(70, 70, 70),
+            _ => Color.FromRgb(145, 95, 0)
         };
-        var description = new TextBlock
-        {
-            Text = step.Description,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(Color.FromRgb(90, 90, 90)),
-            Margin = new Thickness(0, 4, 0, 0)
-        };
-        var status = new TextBlock
-        {
-            Text = step.Implemented ? "Implemented" : "Roadmap",
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(step.Implemented ? Color.FromRgb(20, 110, 55) : Color.FromRgb(145, 95, 0)),
-            VerticalAlignment = VerticalAlignment.Center
-        };
+
+        var title = new TextBlock { Text = step.Title, FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = Brushes.Black };
+        var description = new TextBlock { Text = step.Description, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Color.FromRgb(90, 90, 90)), Margin = new Thickness(0, 4, 0, 0) };
+        var status = new TextBlock { Text = statusText, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(statusColor), VerticalAlignment = VerticalAlignment.Center };
 
         var content = new Grid();
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -141,55 +157,131 @@ public partial class MainWindow : Window
         };
     }
 
+    private async void RefreshWorkspaces_Click(object sender, RoutedEventArgs e)
+    {
+        await RunBusyAsync(async cancellationToken =>
+        {
+            StatusText.Text = "Reading accessible Fabric workspaces...";
+            var workspaces = await _fabricApi.ListWorkspacesAsync(cancellationToken);
+            WorkspaceBox.ItemsSource = workspaces;
+            WorkspaceStatusText.Text = $"{workspaces.Count} workspaces";
+            StatusText.Text = workspaces.Count == 0
+                ? "No Admin/Member/Contributor workspaces were returned for the current identity."
+                : "Workspace list refreshed.";
+        });
+    }
+
     private async void Generate_Click(object sender, RoutedEventArgs e)
     {
-        await RunBusyAsync(async () =>
+        await RunBusyAsync(async cancellationToken =>
         {
             var project = ReadProject();
             if (project.Scenario != BusinessScenario.SalesBi)
-                throw new NotSupportedException("Only SalesBi generation is implemented in the first native C# slice.");
+                throw new NotSupportedException("Only SalesBi generation is implemented in the native C# vertical slice.");
 
             var root = FindRepositoryRoot();
             var output = Path.Combine(root, "generated", "data");
             var cache = Path.Combine(root, "generated", "cache");
 
-            StatusText.Text = $"Generating {project.Scale} {project.RawFormat} data...";
-            await _generator.GenerateAsync(project, root, output, cache);
-            StatusText.Text = $"Generation complete: {output}";
+            UpdateStage(PipelineStage.Generate, PipelineExecutionState.Running, $"Generating {project.Scale} {project.RawFormat} data...");
+            await _generator.GenerateAsync(project, root, output, cache, cancellationToken);
+            UpdateStage(PipelineStage.Generate, PipelineExecutionState.Completed, $"Generation complete: {output}");
+        });
+    }
+
+    private async void Prepare_Click(object sender, RoutedEventArgs e)
+    {
+        await RunBusyAsync(async cancellationToken =>
+        {
+            var project = ReadProject();
+            if (project.StopAfter < PipelineStage.Bronze)
+                throw new InvalidOperationException("Choose Bronze or later before preparing Fabric items.");
+
+            var progress = CreatePipelineProgress();
+            var result = await _runner.PrepareAsync(project, progress, cancellationToken);
+            WorkspaceStatusText.Text = $"{result.Workspace.DisplayName} • {result.Workspace.Id}";
+            StatusText.Text = "Fabric items prepared. No notebook jobs were run.";
         });
     }
 
     private async void Upload_Click(object sender, RoutedEventArgs e)
     {
-        await RunBusyAsync(async () =>
+        await RunBusyAsync(async cancellationToken =>
         {
             var project = ReadProject();
-            if (string.IsNullOrWhiteSpace(project.Workspace.WorkspaceName))
-                throw new InvalidOperationException("Enter an existing Fabric workspace name before uploading.");
-
             var root = FindRepositoryRoot();
             var output = Path.Combine(root, "generated", "data");
-            var progress = new Progress<string>(message => StatusText.Text = message);
-            var uploaded = await _uploader.UploadAsync(project, output, progress);
-            StatusText.Text = $"Bronze upload complete: {uploaded.Count} files.";
+            var progress = CreatePipelineProgress();
+            var uploaded = await _runner.UploadBronzeAsync(project, output, progress, cancellationToken);
+            StatusText.Text = $"Raw upload complete: {uploaded.Count} files.";
         });
     }
 
-    private async Task RunBusyAsync(Func<Task> operation)
+    private async void RunPipeline_Click(object sender, RoutedEventArgs e)
     {
+        _runtimeStates.Clear();
+        RenderPlan(false);
+        await RunBusyAsync(async cancellationToken =>
+        {
+            var project = ReadProject();
+            var root = FindRepositoryRoot();
+            var generatedRoot = Path.Combine(root, "generated");
+            var progress = CreatePipelineProgress();
+            var result = await _runner.RunToSelectedStageAsync(project, root, generatedRoot, progress, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(result.Provisioning.Workspace.Id))
+                WorkspaceStatusText.Text = $"{result.Provisioning.Workspace.DisplayName} • {result.Provisioning.Workspace.Id}";
+            StatusText.Text = $"Pipeline completed through {project.StopAfter}. {result.UploadedFiles.Count} files uploaded; {result.Jobs.Count} Fabric notebook jobs completed.";
+        });
+    }
+
+    private void Cancel_Click(object sender, RoutedEventArgs e)
+    {
+        StatusText.Text = "Cancellation requested...";
+        _operationCancellation?.Cancel();
+    }
+
+    private IProgress<PipelineProgress> CreatePipelineProgress() => new Progress<PipelineProgress>(update =>
+    {
+        UpdateStage(update.Stage, update.State, update.Message);
+    });
+
+    private void UpdateStage(PipelineStage stage, PipelineExecutionState state, string message)
+    {
+        _runtimeStates[stage] = state;
+        StatusText.Text = message;
+        RenderPlan(false);
+    }
+
+    private async Task RunBusyAsync(Func<CancellationToken, Task> operation)
+    {
+        if (_operationCancellation is not null)
+            return;
+
+        _operationCancellation = new CancellationTokenSource();
         SetBusy(true);
         try
         {
-            await operation();
+            await operation(_operationCancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText.Text = "Operation cancelled.";
         }
         catch (Exception ex)
         {
             StatusText.Text = ex.Message;
+            var running = _runtimeStates.FirstOrDefault(pair => pair.Value == PipelineExecutionState.Running);
+            if (!running.Equals(default(KeyValuePair<PipelineStage, PipelineExecutionState>)))
+                _runtimeStates[running.Key] = PipelineExecutionState.Failed;
+            RenderPlan(false);
             MessageBox.Show(this, ex.Message, "Contoso Fabric Builder", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
+            _operationCancellation.Dispose();
+            _operationCancellation = null;
             SetBusy(false);
+            RenderPlan(false);
         }
     }
 
@@ -197,7 +289,12 @@ public partial class MainWindow : Window
     {
         PlanButton.IsEnabled = !busy;
         GenerateButton.IsEnabled = !busy;
+        PrepareButton.IsEnabled = !busy;
         UploadButton.IsEnabled = !busy;
+        RefreshWorkspacesButton.IsEnabled = !busy;
+        StopAfterBox.IsEnabled = !busy;
+        CancelButton.IsEnabled = busy;
+        RunPipelineButton.IsEnabled = !busy && (StopAfterBox.SelectedItem as PipelineStage? ?? PipelineStage.Bronze) <= PipelineStage.Gold;
     }
 
     private static string FindRepositoryRoot()
