@@ -31,15 +31,7 @@ public static class PipelinePlanner
     {
         Validate(project);
 
-        var orders = project.Scale switch
-        {
-            DataScale.Tiny => 10_000,
-            DataScale.Small => 100_000,
-            DataScale.Medium => 500_000,
-            DataScale.Large => 2_000_000,
-            _ => throw new ArgumentOutOfRangeException(nameof(project.Scale))
-        };
-
+        var orders = project.OrdersOverride ?? OrdersForScale(project.Scale);
         var steps = AllSteps
             .Where(step => step.Stage <= project.StopAfter)
             .ToArray();
@@ -48,6 +40,11 @@ public static class PipelinePlanner
         if (project.RequestedSeed != 0)
         {
             warnings.Add("The current Contoso generator is intentionally fixed to Random(0). The requested seed is stored but not applied yet.");
+        }
+
+        if (project.OrdersOverride is not null)
+        {
+            warnings.Add($"Custom order count {project.OrdersOverride:N0} overrides the {project.Scale} scale preset.");
         }
 
         if (project.Scenario != BusinessScenario.SalesBi)
@@ -78,6 +75,10 @@ public static class PipelinePlanner
             throw new ArgumentException("Project name is required.", nameof(project));
         if (project.Years is < 1 or > 20)
             throw new ArgumentOutOfRangeException(nameof(project), "Years must be between 1 and 20.");
+        if (project.OrdersOverride is <= 0 or > 50_000_000)
+            throw new ArgumentOutOfRangeException(nameof(project), "Custom order count must be between 1 and 50,000,000.");
+        if (project.EffectiveStartDate.Year is < 1990 or > 2100)
+            throw new ArgumentOutOfRangeException(nameof(project), "Start date year must be between 1990 and 2100.");
         if (string.IsNullOrWhiteSpace(project.BronzeLakehouse))
             throw new ArgumentException("Bronze Lakehouse name is required.", nameof(project));
         if (project.StopAfter >= PipelineStage.Silver && string.IsNullOrWhiteSpace(project.SilverLakehouse))
