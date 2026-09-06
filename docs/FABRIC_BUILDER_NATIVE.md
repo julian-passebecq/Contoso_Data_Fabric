@@ -26,7 +26,10 @@ az login
 Contoso C# generator
         |
         v
-Bronze Lakehouse + notebook
+truth_manifest.json
+        |
+        v
+Bronze Lakehouse + manifest validation
         |
         v
 Silver Lakehouse + quality notebook
@@ -52,6 +55,7 @@ ContosoFabric.Core
   - ProjectFileService
   - PipelinePlanner
   - LegacyGeneratorAdapter
+  - GenerationManifest
         |
         +---------------------> DatabaseGenerator.Engine
         |
@@ -149,15 +153,44 @@ Preflight does not mutate Fabric. Depending on the selected range it checks:
 - existing semantic-model dependency for Report-start
 - local-currency semantic-model rule
 
-## Data stages
+## Data stages and validation
 
 ### Generate
 
 Calls the existing C# `DatabaseGenerator.Engine` directly.
 
+When the engine completes, `LegacyGeneratorAdapter` parses the final logger payloads for:
+
+```text
+Orders:
+OrdersRows:
+```
+
+and writes `generated/data/truth_manifest.json`. The parser is anchored to the legacy logger's `> <message>` payload boundary, so `Online orders:` cannot be mistaken for the total `Orders:` counter.
+
+The manifest includes:
+
+- schema version
+- project name
+- generated timestamp
+- configured/requested order count
+- actual generated orders
+- actual generated order rows
+- start date / years
+- raw format
+- effective deterministic seed (`0`)
+- expected raw tables
+
 ### Bronze
 
-Creates/reuses the Bronze Lakehouse, uploads raw files to `Files/raw`, deploys the generated notebook, materializes Delta tables and waits for job completion.
+Creates/reuses the Bronze Lakehouse, uploads raw files plus `truth_manifest.json` to `Files/raw`, deploys the generated notebook, materializes Delta tables and waits for job completion.
+
+When a truth manifest is present, Bronze writes `bronze_validation_summary` and verifies:
+
+- `orders` row count == generator `ActualOrders`
+- `orderrows` row count == generator `ActualOrderRows`
+
+A mismatch raises an exception and blocks downstream execution. Legacy/manual raw folders without a manifest remain supported, but the notebook emits an explicit warning that generator-to-Bronze reconciliation was skipped.
 
 ### Silver
 
@@ -226,7 +259,7 @@ The Direct Lake source is a shared `AzureStorage.DataLake` expression using reso
 
 The source is multi-currency. The tool deliberately does not invent a reporting currency.
 
-`Revenue Local` and `Gross Margin Local` therefore use `HASONEVALUE(Sales[CurrencyCode])`: when more than one currency is in filter context the measure returns blank instead of adding unlike currencies.
+`Revenue Local` and `Gross Margin Local` use `HASONEVALUE(Sales[CurrencyCode])`: when more than one currency is in filter context the measure returns blank instead of adding unlike currencies.
 
 ## PBIR Sales Overview
 
@@ -254,13 +287,13 @@ The deployer always sends the complete definition:
 - LROs: poll operation status and honor `Retry-After`
 - throttling: retry HTTP 429
 
-Duplicate same-name items are rejected instead of selecting one arbitrarily.
+Duplicate same-name semantic models/reports are rejected instead of selecting one arbitrarily.
 
 ## Separate UI actions
 
 - **Plan** — calculate the range only.
 - **Preflight** — read-only dependency/environment validation.
-- **Generate locally** — run only the original generator.
+- **Generate locally** — run only the original generator and create the truth manifest.
 - **Prepare selected stages** — idempotently create/update definitions; BI definitions are deferred when selected Gold has not yet executed.
 - **Upload raw** — upload existing local raw files when Bronze is selected.
 - **Run selected range** — execute exactly `startFrom -> stopAfter`.
@@ -281,7 +314,17 @@ abfss://<workspace-guid>@onelake.dfs.fabric.microsoft.com/<lakehouse-guid>/Table
 
 ## Verification boundary
 
-CI validates compilation and local contracts. It does not mutate a real Fabric tenant.
+Latest Windows CI on the functional head:
+
+```text
+dotnet restore  PASS
+dotnet build    PASS — 0 warnings, 0 errors
+xUnit           PASS — 24 / 24 tests
+```
+
+CI validates compilation, stage ranges, project persistence, TMDL/PBIR generation, currency safeguards, generator-log truth parsing, Bronze manifest validation generation and Gold reconciliation generation.
+
+CI does not mutate a real Fabric tenant.
 
 The live code path now covers Generate through Report, but a real `az login` + capacity-backed Fabric workspace run is still required before the PR should be considered tenant-verified.
 
