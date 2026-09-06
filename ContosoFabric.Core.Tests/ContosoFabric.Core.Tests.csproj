@@ -18,5 +18,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ContosoFabric.Core\ContosoFabric.Core.csproj" />
+    <ProjectReference Include="..\ContosoFabric.Fabric\ContosoFabric.Fabric.csproj" />
   </ItemGroup>
 </Project>
