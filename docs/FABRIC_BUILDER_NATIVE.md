@@ -47,25 +47,23 @@ Microsoft Fabric
 
 ### Stop after Silver
 
-Runs Bronze, then:
-
-1. Creates/reuses the Silver Lakehouse.
-2. Generates/updates the Silver notebook.
-3. Deduplicates core entities by business keys.
-4. Writes conformed dimensions/facts as Delta.
-5. Writes a `data_quality_summary` Delta table.
-6. Waits for the notebook job to complete.
+Runs Bronze, then creates/reuses Silver, deploys the cleaning notebook, deduplicates the core entities by business key, writes conformed Delta facts/dimensions, writes `data_quality_summary`, and waits for the notebook job to complete.
 
 ### Stop after Gold
 
-Runs Bronze and Silver, then:
+Runs Bronze and Silver, then creates/reuses Gold and builds:
 
-1. Creates/reuses the Gold Lakehouse.
-2. Generates/updates the Gold notebook.
-3. Copies conformed dimensions and the detailed sales fact into Gold.
-4. Builds `fact_sales_enriched`.
-5. Builds `sales_daily`, `sales_by_product`, `sales_by_store`, and `customer_value`.
-6. Waits for the notebook job to complete.
+- `dim_customer`
+- `dim_store`
+- `dim_product`
+- `dim_date`
+- `dim_currencyexchange`
+- `fact_sales`
+- `fact_sales_enriched`
+- `sales_daily`
+- `sales_by_product`
+- `sales_by_store`
+- `customer_value`
 
 Amounts stay grouped by `CurrencyCode` in the first Gold model. The app deliberately does not invent a currency-conversion convention before that business rule is explicitly defined.
 
@@ -73,8 +71,9 @@ Amounts stay grouped by `CurrencyCode` in the first Gold model. The app delibera
 
 - Lakehouses are looked up by exact display name and reused.
 - Notebooks are looked up by display name and their definitions are updated in place.
-- Bronze, Silver and Gold tables are written using overwrite semantics for the current educational/demo workflow.
+- Bronze, Silver and Gold tables use overwrite semantics for the current educational/demo workflow.
 - The raw upload overwrites matching file paths.
+- Delta raw output is uploaded recursively, including `_delta_log` JSON files.
 
 ## Authentication
 
@@ -95,7 +94,21 @@ abfss://<workspace-guid>@onelake.dfs.fabric.microsoft.com/<lakehouse-guid>/Files
 abfss://<workspace-guid>@onelake.dfs.fabric.microsoft.com/<lakehouse-guid>/Tables/...
 ```
 
-This avoids the special-character limitations of name-based ABFSS workspace paths.
+Using GUIDs avoids the special-character limitations of name-based ABFSS workspace paths.
+
+## Fabric API behavior covered
+
+The C# REST client handles:
+
+- workspace discovery
+- item listing and exact-name reuse
+- Lakehouse creation
+- Notebook creation and definition update
+- Fabric long-running operations (`202`, `x-ms-operation-id`, `Retry-After`)
+- run-on-demand notebook execution with `beta=false`
+- job-instance polling
+- `429 Too Many Requests` retry handling
+- cancellation and explicit timeouts
 
 ## Current boundary
 
