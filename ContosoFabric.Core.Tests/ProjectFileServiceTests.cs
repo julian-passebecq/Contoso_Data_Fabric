@@ -21,7 +21,8 @@ public sealed class ProjectFileServiceTests
             GoldLakehouse: "Gold_Test",
             RequestedSeed: 0,
             OrdersOverride: 765_432,
-            StartDate: new DateTime(2018, 4, 3));
+            StartDate: new DateTime(2018, 4, 3),
+            StartFrom: PipelineStage.Silver);
 
         var folder = Path.Combine(Path.GetTempPath(), "contoso-fabric-tests", Guid.NewGuid().ToString("N"));
         var path = Path.Combine(folder, "project.fabric.json");
@@ -33,8 +34,10 @@ public sealed class ProjectFileServiceTests
             var loaded = await ProjectFileService.LoadAsync(path);
 
             Assert.Contains("\"scenario\": \"salesBi\"", json, StringComparison.Ordinal);
+            Assert.Contains("\"startFrom\": \"silver\"", json, StringComparison.Ordinal);
             Assert.Contains("\"stopAfter\": \"gold\"", json, StringComparison.Ordinal);
             Assert.DoesNotContain("effectiveStartDate", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("includesBronze", json, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(project, loaded);
             Assert.Equal(new DateTime(2018, 4, 3), loaded.EffectiveStartDate);
         }
