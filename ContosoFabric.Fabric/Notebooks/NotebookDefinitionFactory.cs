@@ -17,6 +17,7 @@ raw_root = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{bronze_lak
 table_root = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{bronze_lakehouse_id}/Tables"
 
 tables = ["customer", "store", "product", "date", "currencyexchange", "sales", "orders", "orderrows"]
+row_counts = {}
 
 for table in tables:
     if landing_format == "parquet":
@@ -28,9 +29,37 @@ for table in tables:
     else:
         raise ValueError(f"Unsupported landing format: {landing_format}")
 
+    row_count = df.count()
+    row_counts[table] = row_count
     df = df.withColumn("__ingested_at_utc", F.current_timestamp())
     df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(f"{table_root}/{table}")
-    print(f"Bronze {table}: {df.count()} rows")
+    print(f"Bronze {table}: {row_count} rows")
+
+# New generator runs carry a structured truth manifest derived from the original
+# C# engine's final counters. Keep manifest validation optional for manually
+# prepared/legacy Bronze-start folders, but fail current generated runs on mismatch.
+manifest_path = f"{raw_root}/truth_manifest.json"
+manifest_jvm_path = spark._jvm.org.apache.hadoop.fs.Path(manifest_path)
+manifest_fs = manifest_jvm_path.getFileSystem(spark._jsc.hadoopConfiguration())
+
+if manifest_fs.exists(manifest_jvm_path):
+    manifest = spark.read.option("multiLine", True).json(manifest_path).first()
+    expected_orders = int(manifest["actualOrders"])
+    expected_order_rows = int(manifest["actualOrderRows"])
+
+    checks = [
+        ("orders_vs_generator_manifest", row_counts["orders"], expected_orders, "PASS" if row_counts["orders"] == expected_orders else "FAIL"),
+        ("orderrows_vs_generator_manifest", row_counts["orderrows"], expected_order_rows, "PASS" if row_counts["orderrows"] == expected_order_rows else "FAIL"),
+    ]
+    validation = spark.createDataFrame(checks, ["CheckName", "Observed", "Expected", "Status"]).withColumn("CheckedAtUtc", F.current_timestamp())
+    validation.write.format("delta").mode("overwrite").save(f"{table_root}/bronze_validation_summary")
+    validation.show(truncate=False)
+
+    failed_checks = validation.filter(F.col("Status") == "FAIL").count()
+    if failed_checks > 0:
+        raise RuntimeError(f"Bronze truth-manifest validation failed: {failed_checks} checks failed. Downstream execution is blocked.")
+else:
+    print("WARNING: truth_manifest.json is absent; generator-to-Bronze count reconciliation was skipped for this legacy/manual raw folder.")
 """
             .Replace("__WORKSPACE_ID__", workspaceId)
             .Replace("__BRONZE_ID__", bronzeLakehouseId)
