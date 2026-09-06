@@ -1,0 +1,161 @@
+<Window x:Class="ContosoFabric.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Contoso Fabric Builder"
+        Width="1280" Height="920"
+        MinWidth="1040" MinHeight="780"
+        Background="#F7F7F7"
+        WindowStartupLocation="CenterScreen">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="White" BorderBrush="#E5E5E5" BorderThickness="0,0,0,1" Padding="28,20">
+            <Grid>
+                <StackPanel>
+                    <TextBlock Text="Contoso → Microsoft Fabric" FontSize="26" FontWeight="SemiBold" Foreground="#202020"/>
+                    <TextBlock Text="Native .NET 8 builder • C# data motor • Fabric REST + OneLake + Direct Lake + PBIR" Margin="0,5,0,0" Foreground="#666666"/>
+                </StackPanel>
+                <Border HorizontalAlignment="Right" VerticalAlignment="Center" Background="#F2F6FA" CornerRadius="4" Padding="10,6">
+                    <TextBlock Text="C# end-to-end BI" FontWeight="SemiBold" Foreground="#174A7E"/>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" Margin="28,24">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="390"/>
+                <ColumnDefinition Width="24"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="White" BorderBrush="#E2E2E2" BorderThickness="1" CornerRadius="8" Padding="22">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="Project parameters" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <WrapPanel Margin="0,0,0,5">
+                            <Button x:Name="NewProjectButton" Content="New" Click="NewProject_Click"/>
+                            <Button x:Name="OpenProjectButton" Content="Open JSON" Click="OpenProject_Click"/>
+                            <Button x:Name="SaveProjectButton" Content="Save JSON" Click="SaveProject_Click"/>
+                        </WrapPanel>
+                        <TextBlock x:Name="ProjectFileText" Text="Unsaved project" Foreground="#777777" TextTrimming="CharacterEllipsis" ToolTip="Project JSON path" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Project name" FontWeight="SemiBold"/>
+                        <TextBox x:Name="ProjectNameBox" Text="contoso-fabric-sales"/>
+
+                        <TextBlock Text="Business scenario" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="ScenarioBox"/>
+
+                        <TextBlock Text="Scale preset" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="ScaleBox"/>
+
+                        <TextBlock Text="Custom orders (optional)" FontWeight="SemiBold"/>
+                        <TextBox x:Name="OrdersOverrideBox" ToolTip="Leave blank to use the scale preset. Maximum 50,000,000."/>
+
+                        <TextBlock Text="Start date" FontWeight="SemiBold"/>
+                        <DatePicker x:Name="StartDatePicker"/>
+
+                        <TextBlock Text="History (years)" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="YearsBox"/>
+
+                        <TextBlock Text="Raw landing format" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="FormatBox"/>
+
+                        <Separator Margin="0,10,0,12"/>
+                        <TextBlock Text="Execution range" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+                        <TextBlock Text="Start from" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="StartFromBox" SelectionChanged="StartFromBox_SelectionChanged" ToolTip="Choose any stage. Upstream artifacts outside the range must already exist."/>
+
+                        <TextBlock Text="Stop after" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="StopAfterBox" SelectionChanged="StopAfterBox_SelectionChanged"/>
+
+                        <Separator Margin="0,10,0,16"/>
+                        <TextBlock Text="Fabric target" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                        <TextBlock Text="Workspace" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="WorkspaceBox" IsEditable="True" IsTextSearchEnabled="True" DisplayMemberPath="DisplayName" ToolTip="Use Refresh workspaces after az login, or type an exact workspace name."/>
+                        <Button x:Name="RefreshWorkspacesButton" Content="Refresh workspaces" Click="RefreshWorkspaces_Click" HorizontalAlignment="Left" Margin="0,2,0,12"/>
+
+                        <TextBlock Text="Bronze Lakehouse" FontWeight="SemiBold"/>
+                        <TextBox x:Name="BronzeLakehouseBox" Text="Contoso_Bronze"/>
+
+                        <TextBlock Text="Silver Lakehouse" FontWeight="SemiBold"/>
+                        <TextBox x:Name="SilverLakehouseBox" Text="Contoso_Silver"/>
+
+                        <TextBlock Text="Gold Lakehouse" FontWeight="SemiBold"/>
+                        <TextBox x:Name="GoldLakehouseBox" Text="Contoso_Gold"/>
+
+                        <TextBlock Text="Direct Lake semantic model" FontWeight="SemiBold"/>
+                        <TextBox x:Name="SemanticModelBox" Text="Contoso_Sales_Model"/>
+
+                        <TextBlock Text="Power BI report" FontWeight="SemiBold"/>
+                        <TextBox x:Name="ReportBox" Text="Contoso_Sales_Report"/>
+
+                        <Border Background="#F7F7F7" CornerRadius="5" Padding="10" Margin="0,10,0,0">
+                            <TextBlock TextWrapping="Wrap" Foreground="#666666" Text="Authentication: Azure CLI. Run az login once. The app does not store tenant secrets."/>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <Border Grid.Column="2" Background="White" BorderBrush="#E2E2E2" BorderThickness="1" CornerRadius="8" Padding="24">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0">
+                        <TextBlock Text="Pipeline preview" FontSize="18" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="PlanSummaryText" Text="Choose parameters and select Plan." Foreground="#666666" Margin="0,5,0,18"/>
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="PipelinePanel"/>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="2" Margin="0,18,0,0">
+                        <Border x:Name="WarningBorder" Background="#FFF8E1" BorderBrush="#E5C365" BorderThickness="1" CornerRadius="5" Padding="12" Visibility="Collapsed" Margin="0,0,0,12">
+                            <TextBlock x:Name="WarningText" TextWrapping="Wrap" Foreground="#604A00"/>
+                        </Border>
+
+                        <Expander Header="Activity log" IsExpanded="True" Margin="0,0,0,12">
+                            <TextBox x:Name="ActivityLogBox"
+                                     Height="120"
+                                     IsReadOnly="True"
+                                     AcceptsReturn="True"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     FontFamily="Consolas"
+                                     FontSize="12"
+                                     TextWrapping="NoWrap"/>
+                        </Expander>
+
+                        <WrapPanel>
+                            <Button x:Name="PlanButton" Content="Plan" Click="Plan_Click"/>
+                            <Button x:Name="PreflightButton" Content="Preflight" Click="Preflight_Click"/>
+                            <Button x:Name="GenerateButton" Content="Generate locally" Click="Generate_Click"/>
+                            <Button x:Name="PrepareButton" Content="Prepare selected stages" Click="Prepare_Click"/>
+                            <Button x:Name="UploadButton" Content="Upload raw" Click="Upload_Click"/>
+                            <Button x:Name="RunPipelineButton" Content="Run selected range" Click="RunPipeline_Click" FontWeight="SemiBold"/>
+                            <Button x:Name="CancelButton" Content="Cancel" Click="Cancel_Click" IsEnabled="False"/>
+                        </WrapPanel>
+                        <TextBlock Margin="0,10,0,0" Foreground="#666666" TextWrapping="Wrap" Text="Preflight is read-only. In a full BI run, semantic-model/report publication waits until Gold execution completes."/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="2" Background="#202020" Padding="20,10">
+            <Grid>
+                <TextBlock x:Name="StatusText" Text="Ready" Foreground="White" TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="WorkspaceStatusText" Text="Not connected" Foreground="#BBBBBB" HorizontalAlignment="Right"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

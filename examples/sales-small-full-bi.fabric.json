@@ -1,0 +1,21 @@
+{
+  "name": "contoso-sales-full-bi",
+  "scenario": "salesBi",
+  "scale": "small",
+  "years": 3,
+  "rawFormat": "parquet",
+  "stopAfter": "report",
+  "workspace": {
+    "workspaceName": "YOUR FABRIC WORKSPACE",
+    "workspaceId": null
+  },
+  "bronzeLakehouse": "Contoso_Bronze",
+  "silverLakehouse": "Contoso_Silver",
+  "goldLakehouse": "Contoso_Gold",
+  "requestedSeed": 0,
+  "ordersOverride": null,
+  "startDate": "2014-01-01T00:00:00",
+  "startFrom": "generate",
+  "semanticModelName": "Contoso_Sales_Model",
+  "reportName": "Contoso_Sales_Report"
+}
