@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Contoso Fabric Builder"
-        Width="1280" Height="880"
-        MinWidth="1040" MinHeight="740"
+        Width="1280" Height="900"
+        MinWidth="1040" MinHeight="760"
         Background="#F7F7F7"
         WindowStartupLocation="CenterScreen">
     <Grid>
@@ -63,6 +63,12 @@
 
                         <TextBlock Text="Raw landing format" FontWeight="SemiBold"/>
                         <ComboBox x:Name="FormatBox"/>
+
+                        <Separator Margin="0,10,0,12"/>
+                        <TextBlock Text="Execution range" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+                        <TextBlock Text="Start from" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="StartFromBox" SelectionChanged="StartFromBox_SelectionChanged" ToolTip="Generate runs from scratch. Bronze reuses generated/data. Silver and Gold require upstream Lakehouses to already exist."/>
 
                         <TextBlock Text="Stop after" FontWeight="SemiBold"/>
                         <ComboBox x:Name="StopAfterBox" SelectionChanged="StopAfterBox_SelectionChanged"/>
@@ -128,12 +134,12 @@
                             <Button x:Name="PlanButton" Content="Plan" Click="Plan_Click"/>
                             <Button x:Name="PreflightButton" Content="Preflight" Click="Preflight_Click"/>
                             <Button x:Name="GenerateButton" Content="Generate locally" Click="Generate_Click"/>
-                            <Button x:Name="PrepareButton" Content="Prepare Fabric" Click="Prepare_Click"/>
+                            <Button x:Name="PrepareButton" Content="Prepare selected stages" Click="Prepare_Click"/>
                             <Button x:Name="UploadButton" Content="Upload raw" Click="Upload_Click"/>
-                            <Button x:Name="RunPipelineButton" Content="Run selected pipeline" Click="RunPipeline_Click" FontWeight="SemiBold"/>
+                            <Button x:Name="RunPipelineButton" Content="Run selected range" Click="RunPipeline_Click" FontWeight="SemiBold"/>
                             <Button x:Name="CancelButton" Content="Cancel" Click="Cancel_Click" IsEnabled="False"/>
                         </WrapPanel>
-                        <TextBlock Margin="0,10,0,0" Foreground="#666666" TextWrapping="Wrap" Text="Preflight is read-only. Prepare Fabric is idempotent: existing Lakehouses are reused and generated notebooks are updated rather than duplicated."/>
+                        <TextBlock Margin="0,10,0,0" Foreground="#666666" TextWrapping="Wrap" Text="Preflight is read-only. Prepare selected stages is idempotent and does not rerun upstream stages outside the selected range."/>
                     </StackPanel>
                 </Grid>
             </Border>
