@@ -36,6 +36,13 @@ public partial class MainWindow : Window
         ScaleBox.ItemsSource = Enum.GetValues<DataScale>();
         YearsBox.ItemsSource = Enumerable.Range(1, 20).ToArray();
         FormatBox.ItemsSource = Enum.GetValues<RawFormat>();
+        StartFromBox.ItemsSource = new[]
+        {
+            PipelineStage.Generate,
+            PipelineStage.Bronze,
+            PipelineStage.Silver,
+            PipelineStage.Gold
+        };
         StopAfterBox.ItemsSource = Enum.GetValues<PipelineStage>();
 
         ApplyProject(CreateDefaultProject());
@@ -56,7 +63,8 @@ public partial class MainWindow : Window
         GoldLakehouse: "Contoso_Gold",
         RequestedSeed: 0,
         OrdersOverride: null,
-        StartDate: new DateTime(2014, 1, 1));
+        StartDate: new DateTime(2014, 1, 1),
+        StartFrom: PipelineStage.Generate);
 
     private FabricProject ReadProject()
     {
@@ -97,7 +105,8 @@ public partial class MainWindow : Window
             GoldLakehouse: GoldLakehouseBox.Text.Trim(),
             RequestedSeed: _requestedSeed,
             OrdersOverride: ordersOverride,
-            StartDate: StartDatePicker.SelectedDate?.Date);
+            StartDate: StartDatePicker.SelectedDate?.Date,
+            StartFrom: (PipelineStage)(StartFromBox.SelectedItem ?? PipelineStage.Generate));
     }
 
     private void ApplyProject(FabricProject project)
@@ -112,6 +121,7 @@ public partial class MainWindow : Window
             StartDatePicker.SelectedDate = project.EffectiveStartDate;
             YearsBox.SelectedItem = project.Years;
             FormatBox.SelectedItem = project.RawFormat;
+            StartFromBox.SelectedItem = project.StartFrom;
             StopAfterBox.SelectedItem = project.StopAfter;
             BronzeLakehouseBox.Text = project.BronzeLakehouse;
             SilverLakehouseBox.Text = project.SilverLakehouse;
@@ -223,6 +233,15 @@ public partial class MainWindow : Window
         RenderPlan();
     }
 
+    private void StartFromBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (IsLoaded && !_applyingProject)
+        {
+            _runtimeStates.Clear();
+            RenderPlan();
+        }
+    }
+
     private void StopAfterBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (IsLoaded && !_applyingProject)
@@ -242,7 +261,7 @@ public partial class MainWindow : Window
             foreach (var step in plan.Steps)
                 PipelinePanel.Children.Add(CreateStepCard(step));
 
-            PlanSummaryText.Text = $"{plan.OrdersCount:N0} orders • {plan.Project.EffectiveStartDate:yyyy-MM-dd} + {plan.Project.Years}y • {plan.Project.RawFormat} • stop after {plan.Project.StopAfter}";
+            PlanSummaryText.Text = $"{plan.Project.StartFrom} → {plan.Project.StopAfter} • {plan.OrdersCount:N0} configured orders • {plan.Project.EffectiveStartDate:yyyy-MM-dd} + {plan.Project.Years}y • {plan.Project.RawFormat}";
             WarningBorder.Visibility = plan.Warnings.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             WarningText.Text = string.Join(Environment.NewLine, plan.Warnings.Select(warning => $"• {warning}"));
             RunPipelineButton.IsEnabled = plan.Project.StopAfter <= PipelineStage.Gold && _operationCancellation is null;
@@ -252,6 +271,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            RunPipelineButton.IsEnabled = false;
             StatusText.Text = ex.Message;
         }
     }
@@ -353,7 +373,7 @@ public partial class MainWindow : Window
     {
         await RunBusyAsync(async cancellationToken =>
         {
-            var project = ReadProject();
+            var project = ReadProject() with { StartFrom = PipelineStage.Generate, StopAfter = PipelineStage.Generate };
             if (project.Scenario != BusinessScenario.SalesBi)
                 throw new NotSupportedException("Only SalesBi generation is implemented in the native C# vertical slice.");
 
@@ -373,12 +393,12 @@ public partial class MainWindow : Window
         {
             var project = ReadProject();
             if (project.StopAfter < PipelineStage.Bronze)
-                throw new InvalidOperationException("Choose Bronze or later before preparing Fabric items.");
+                throw new InvalidOperationException("The selected range contains no Fabric stage to prepare.");
 
             var progress = CreatePipelineProgress();
             var result = await _runner.PrepareAsync(project, progress, cancellationToken);
             WorkspaceStatusText.Text = $"{result.Workspace.DisplayName} • {result.Workspace.Id}";
-            StatusText.Text = "Fabric items prepared. No notebook jobs were run.";
+            StatusText.Text = $"Selected Fabric stages prepared for {project.StartFrom} → {project.StopAfter}. No notebook jobs were run.";
         });
     }
 
@@ -408,7 +428,7 @@ public partial class MainWindow : Window
             var result = await _runner.RunToSelectedStageAsync(project, root, generatedRoot, progress, cancellationToken);
             if (!string.IsNullOrWhiteSpace(result.Provisioning.Workspace.Id))
                 WorkspaceStatusText.Text = $"{result.Provisioning.Workspace.DisplayName} • {result.Provisioning.Workspace.Id}";
-            StatusText.Text = $"Pipeline completed through {project.StopAfter}. {result.UploadedFiles.Count} files uploaded; {result.Jobs.Count} Fabric notebook jobs completed.";
+            StatusText.Text = $"Range completed: {project.StartFrom} → {project.StopAfter}. {result.UploadedFiles.Count} files uploaded; {result.Jobs.Count} Fabric notebook jobs completed.";
         });
     }
 
@@ -466,6 +486,7 @@ public partial class MainWindow : Window
     private void SetBusy(bool busy)
     {
         PlanButton.IsEnabled = !busy;
+        PreflightButton.IsEnabled = !busy;
         GenerateButton.IsEnabled = !busy;
         PrepareButton.IsEnabled = !busy;
         UploadButton.IsEnabled = !busy;
@@ -473,10 +494,26 @@ public partial class MainWindow : Window
         NewProjectButton.IsEnabled = !busy;
         OpenProjectButton.IsEnabled = !busy;
         SaveProjectButton.IsEnabled = !busy;
+        StartFromBox.IsEnabled = !busy;
         StopAfterBox.IsEnabled = !busy;
         CancelButton.IsEnabled = busy;
-        var selectedStop = StopAfterBox.SelectedItem is PipelineStage stage ? stage : PipelineStage.Bronze;
-        RunPipelineButton.IsEnabled = !busy && selectedStop <= PipelineStage.Gold;
+
+        if (!busy)
+        {
+            try
+            {
+                var plan = PipelinePlanner.Build(ReadProject());
+                RunPipelineButton.IsEnabled = plan.Project.StopAfter <= PipelineStage.Gold;
+            }
+            catch
+            {
+                RunPipelineButton.IsEnabled = false;
+            }
+        }
+        else
+        {
+            RunPipelineButton.IsEnabled = false;
+        }
     }
 
     private static string FindRepositoryRoot()
