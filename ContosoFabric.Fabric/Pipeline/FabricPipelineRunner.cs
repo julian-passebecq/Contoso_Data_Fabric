@@ -1,5 +1,6 @@
 using ContosoFabric.Core.Generation;
 using ContosoFabric.Core.Models;
+using ContosoFabric.Core.Planning;
 using ContosoFabric.Fabric.Api;
 using ContosoFabric.Fabric.Notebooks;
 using ContosoFabric.Fabric.OneLake;
@@ -16,10 +17,29 @@ public enum PipelineExecutionState
     Skipped
 }
 
+public enum PreflightStatus
+{
+    Pass,
+    Warning,
+    Fail
+}
+
 public sealed record PipelineProgress(
     PipelineStage Stage,
     PipelineExecutionState State,
     string Message);
+
+public sealed record PreflightCheck(
+    string Name,
+    PreflightStatus Status,
+    string Message);
+
+public sealed record FabricPreflightResult(
+    FabricWorkspaceInfo? Workspace,
+    IReadOnlyList<PreflightCheck> Checks)
+{
+    public bool Ready => Checks.All(check => check.Status != PreflightStatus.Fail);
+}
 
 public sealed record FabricProvisioningResult(
     FabricWorkspaceInfo Workspace,
@@ -52,6 +72,115 @@ public sealed class FabricPipelineRunner
         _uploader = uploader ?? new OneLakeRawUploader();
     }
 
+    public async Task<FabricPreflightResult> PreflightAsync(
+        FabricProject project,
+        string repositoryRoot,
+        CancellationToken cancellationToken = default)
+    {
+        var checks = new List<PreflightCheck>();
+        FabricWorkspaceInfo? workspace = null;
+
+        try
+        {
+            var plan = PipelinePlanner.Build(project);
+            checks.Add(new PreflightCheck(
+                "Project",
+                PreflightStatus.Pass,
+                $"Project is valid: {plan.OrdersCount:N0} orders, {project.RawFormat}, stop after {project.StopAfter}."));
+        }
+        catch (Exception ex)
+        {
+            checks.Add(new PreflightCheck("Project", PreflightStatus.Fail, ex.Message));
+            return new FabricPreflightResult(null, checks);
+        }
+
+        var root = Path.GetFullPath(repositoryRoot);
+        var configPath = Path.Combine(root, "_test_data", "IN", "config_test.json");
+        var dataPath = Path.Combine(root, "_test_data", "IN", "data_test.xlsx");
+        var missingInputs = new[] { configPath, dataPath }.Where(path => !File.Exists(path)).ToArray();
+        checks.Add(missingInputs.Length == 0
+            ? new PreflightCheck("Generator inputs", PreflightStatus.Pass, "Baseline Contoso config and workbook are present.")
+            : new PreflightCheck("Generator inputs", PreflightStatus.Fail, $"Missing: {string.Join(", ", missingInputs.Select(Path.GetFileName))}"));
+
+        if (project.Scenario != BusinessScenario.SalesBi)
+        {
+            checks.Add(new PreflightCheck(
+                "Scenario implementation",
+                PreflightStatus.Fail,
+                "Live generation and Fabric execution are currently implemented for SalesBi only."));
+        }
+        else
+        {
+            checks.Add(new PreflightCheck("Scenario implementation", PreflightStatus.Pass, "SalesBi native generator contract is available."));
+        }
+
+        if (project.StopAfter == PipelineStage.Generate)
+        {
+            checks.Add(new PreflightCheck("Fabric", PreflightStatus.Pass, "Local-only run selected; Fabric authentication is not required."));
+            return new FabricPreflightResult(null, checks);
+        }
+
+        if (project.StopAfter > PipelineStage.Gold)
+        {
+            checks.Add(new PreflightCheck(
+                "Selected endpoint",
+                PreflightStatus.Fail,
+                "Native execution is currently implemented through Gold. Semantic model and Report remain roadmap stages."));
+        }
+
+        try
+        {
+            EnsureLiveSupported(project);
+            workspace = await _api.ResolveWorkspaceAsync(project.Workspace, cancellationToken);
+            checks.Add(new PreflightCheck(
+                "Workspace access",
+                PreflightStatus.Pass,
+                $"Resolved {workspace.DisplayName} ({workspace.Id})."));
+
+            if (string.IsNullOrWhiteSpace(workspace.CapacityId))
+            {
+                checks.Add(new PreflightCheck(
+                    "Fabric capacity",
+                    PreflightStatus.Fail,
+                    "The selected workspace has no capacityId. Fabric Lakehouse/Notebook creation requires a supported Fabric capacity."));
+            }
+            else
+            {
+                checks.Add(new PreflightCheck(
+                    "Fabric capacity",
+                    PreflightStatus.Pass,
+                    $"Workspace is assigned to capacity {workspace.CapacityId}."));
+            }
+
+            if (workspace.Type.Equals("Personal", StringComparison.OrdinalIgnoreCase))
+            {
+                checks.Add(new PreflightCheck(
+                    "Workspace type",
+                    PreflightStatus.Warning,
+                    "A personal workspace was selected. A normal Fabric workspace is recommended for this pipeline."));
+            }
+            else
+            {
+                checks.Add(new PreflightCheck("Workspace type", PreflightStatus.Pass, $"Workspace type is {workspace.Type}."));
+            }
+
+            var visibleItems = await _api.ListItemsAsync(workspace.Id, cancellationToken: cancellationToken);
+            checks.Add(new PreflightCheck(
+                "Item API",
+                PreflightStatus.Pass,
+                $"Fabric item API is readable; {visibleItems.Count} current items are visible."));
+        }
+        catch (Exception ex)
+        {
+            checks.Add(new PreflightCheck(
+                "Fabric connection",
+                PreflightStatus.Fail,
+                $"Fabric preflight failed: {ex.Message}"));
+        }
+
+        return new FabricPreflightResult(workspace, checks);
+    }
+
     public async Task<FabricProvisioningResult> PrepareAsync(
         FabricProject project,
         IProgress<PipelineProgress>? progress = null,
@@ -59,6 +188,7 @@ public sealed class FabricPipelineRunner
     {
         EnsureLiveSupported(project);
         var workspace = await _api.ResolveWorkspaceAsync(project.Workspace, cancellationToken);
+        EnsureWorkspaceCanHostFabric(workspace);
 
         FabricItemInfo? bronze = null;
         FabricItemInfo? silver = null;
@@ -123,6 +253,7 @@ public sealed class FabricPipelineRunner
         EnsureLiveSupported(project);
 
         var workspace = await _api.ResolveWorkspaceAsync(project.Workspace, cancellationToken);
+        EnsureWorkspaceCanHostFabric(workspace);
         var messages = StageMessages(progress, PipelineStage.Bronze);
         var bronze = await _api.EnsureLakehouseAsync(workspace.Id, project.BronzeLakehouse, messages, cancellationToken);
         var uploaded = await _uploader.UploadAsync(project.RawFormat, generatedDataFolder, workspace.Id, bronze.Id, messages, cancellationToken);
@@ -143,8 +274,9 @@ public sealed class FabricPipelineRunner
 
         var dataFolder = Path.Combine(generatedRoot, "data");
         var cacheFolder = Path.Combine(generatedRoot, "cache");
+        var plannedOrders = PipelinePlanner.Build(project).OrdersCount;
 
-        progress?.Report(new PipelineProgress(PipelineStage.Generate, PipelineExecutionState.Running, $"Generating {project.Scale} {project.RawFormat} data"));
+        progress?.Report(new PipelineProgress(PipelineStage.Generate, PipelineExecutionState.Running, $"Generating {plannedOrders:N0} {project.RawFormat} orders"));
         await _generator.GenerateAsync(project, repositoryRoot, dataFolder, cacheFolder, cancellationToken);
         progress?.Report(new PipelineProgress(PipelineStage.Generate, PipelineExecutionState.Completed, $"Generated data in {dataFolder}"));
 
@@ -225,5 +357,11 @@ public sealed class FabricPipelineRunner
         {
             throw new InvalidOperationException("Choose or enter a Fabric workspace before running Fabric stages.");
         }
+    }
+
+    private static void EnsureWorkspaceCanHostFabric(FabricWorkspaceInfo workspace)
+    {
+        if (string.IsNullOrWhiteSpace(workspace.CapacityId))
+            throw new InvalidOperationException($"Workspace '{workspace.DisplayName}' is not assigned to a Fabric capacity. Assign a supported capacity before creating Lakehouses or notebooks.");
     }
 }
