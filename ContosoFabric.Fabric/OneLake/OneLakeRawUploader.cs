@@ -1,5 +1,6 @@
 using Azure.Identity;
 using Azure.Storage.Files.DataLake;
+using ContosoFabric.Core.Generation;
 using ContosoFabric.Core.Models;
 
 namespace ContosoFabric.Fabric.OneLake;
@@ -116,6 +117,8 @@ public sealed class OneLakeRawUploader
         var fileName = Path.GetFileName(path);
         if (fileName.Equals("_log.log", StringComparison.OrdinalIgnoreCase))
             return false;
+        if (fileName.Equals(GenerationManifest.FileName, StringComparison.OrdinalIgnoreCase))
+            return true;
 
         var extension = Path.GetExtension(path);
         return rawFormat switch
