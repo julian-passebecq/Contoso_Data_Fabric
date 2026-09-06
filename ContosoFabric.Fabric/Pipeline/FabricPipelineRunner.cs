@@ -58,6 +58,11 @@ public sealed record FabricPipelineRunResult(
 
 public sealed class FabricPipelineRunner
 {
+    private static readonly string[] ExpectedRawTables =
+    [
+        "customer", "store", "product", "date", "currencyexchange", "sales", "orders", "orderrows"
+    ];
+
     private readonly FabricRestClient _api;
     private readonly LegacyGeneratorAdapter _generator;
     private readonly OneLakeRawUploader _uploader;
@@ -86,7 +91,7 @@ public sealed class FabricPipelineRunner
             checks.Add(new PreflightCheck(
                 "Project",
                 PreflightStatus.Pass,
-                $"Project is valid: {plan.OrdersCount:N0} orders, {project.RawFormat}, stop after {project.StopAfter}."));
+                $"Project is valid: {project.StartFrom} → {project.StopAfter}, {plan.OrdersCount:N0} configured orders, {project.RawFormat}."));
         }
         catch (Exception ex)
         {
@@ -95,12 +100,28 @@ public sealed class FabricPipelineRunner
         }
 
         var root = Path.GetFullPath(repositoryRoot);
-        var configPath = Path.Combine(root, "_test_data", "IN", "config_test.json");
-        var dataPath = Path.Combine(root, "_test_data", "IN", "data_test.xlsx");
-        var missingInputs = new[] { configPath, dataPath }.Where(path => !File.Exists(path)).ToArray();
-        checks.Add(missingInputs.Length == 0
-            ? new PreflightCheck("Generator inputs", PreflightStatus.Pass, "Baseline Contoso config and workbook are present.")
-            : new PreflightCheck("Generator inputs", PreflightStatus.Fail, $"Missing: {string.Join(", ", missingInputs.Select(Path.GetFileName))}"));
+        if (project.IncludesGeneration)
+        {
+            var configPath = Path.Combine(root, "_test_data", "IN", "config_test.json");
+            var dataPath = Path.Combine(root, "_test_data", "IN", "data_test.xlsx");
+            var missingInputs = new[] { configPath, dataPath }.Where(path => !File.Exists(path)).ToArray();
+            checks.Add(missingInputs.Length == 0
+                ? new PreflightCheck("Generator inputs", PreflightStatus.Pass, "Baseline Contoso config and workbook are present.")
+                : new PreflightCheck("Generator inputs", PreflightStatus.Fail, $"Missing: {string.Join(", ", missingInputs.Select(Path.GetFileName))}"));
+        }
+        else
+        {
+            checks.Add(new PreflightCheck("Generator", PreflightStatus.Pass, "Generation is outside the selected stage range and will be skipped."));
+        }
+
+        if (project.StartFrom == PipelineStage.Bronze)
+        {
+            var localData = Path.Combine(root, "generated", "data");
+            var missingRaw = MissingRawTables(localData, project.RawFormat);
+            checks.Add(missingRaw.Count == 0
+                ? new PreflightCheck("Local raw data", PreflightStatus.Pass, $"Existing {project.RawFormat} data is ready in generated/data.")
+                : new PreflightCheck("Local raw data", PreflightStatus.Fail, $"Bronze-start requires existing local raw data. Missing tables: {string.Join(", ", missingRaw)}"));
+        }
 
         if (project.Scenario != BusinessScenario.SalesBi)
         {
@@ -111,7 +132,7 @@ public sealed class FabricPipelineRunner
         }
         else
         {
-            checks.Add(new PreflightCheck("Scenario implementation", PreflightStatus.Pass, "SalesBi native generator contract is available."));
+            checks.Add(new PreflightCheck("Scenario implementation", PreflightStatus.Pass, "SalesBi native contract is available."));
         }
 
         if (project.StopAfter == PipelineStage.Generate)
@@ -169,6 +190,22 @@ public sealed class FabricPipelineRunner
                 "Item API",
                 PreflightStatus.Pass,
                 $"Fabric item API is readable; {visibleItems.Count} current items are visible."));
+
+            if (project.StartFrom == PipelineStage.Silver)
+            {
+                var bronze = FindExactItem(visibleItems, "Lakehouse", project.BronzeLakehouse);
+                checks.Add(bronze is not null
+                    ? new PreflightCheck("Upstream Bronze", PreflightStatus.Pass, $"Existing Bronze Lakehouse found: {project.BronzeLakehouse}.")
+                    : new PreflightCheck("Upstream Bronze", PreflightStatus.Fail, $"Silver-start requires existing Bronze Lakehouse '{project.BronzeLakehouse}'."));
+            }
+
+            if (project.StartFrom == PipelineStage.Gold)
+            {
+                var silver = FindExactItem(visibleItems, "Lakehouse", project.SilverLakehouse);
+                checks.Add(silver is not null
+                    ? new PreflightCheck("Upstream Silver", PreflightStatus.Pass, $"Existing Silver Lakehouse found: {project.SilverLakehouse}.")
+                    : new PreflightCheck("Upstream Silver", PreflightStatus.Fail, $"Gold-start requires existing Silver Lakehouse '{project.SilverLakehouse}'."));
+            }
         }
         catch (Exception ex)
         {
@@ -186,6 +223,7 @@ public sealed class FabricPipelineRunner
         IProgress<PipelineProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        PipelinePlanner.Build(project);
         EnsureLiveSupported(project);
         var workspace = await _api.ResolveWorkspaceAsync(project.Workspace, cancellationToken);
         EnsureWorkspaceCanHostFabric(workspace);
@@ -197,7 +235,7 @@ public sealed class FabricPipelineRunner
         FabricItemInfo? silverNotebook = null;
         FabricItemInfo? goldNotebook = null;
 
-        if (project.StopAfter >= PipelineStage.Bronze)
+        if (project.IncludesBronze)
         {
             var messages = StageMessages(progress, PipelineStage.Bronze);
             progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Running, "Preparing Bronze Fabric items"));
@@ -210,30 +248,44 @@ public sealed class FabricPipelineRunner
                 cancellationToken);
             progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Prepared, "Bronze Lakehouse and notebook prepared"));
         }
-
-        if (project.StopAfter >= PipelineStage.Silver)
+        else if (project.StartFrom == PipelineStage.Silver)
         {
+            bronze = await RequireExistingLakehouseAsync(workspace.Id, project.BronzeLakehouse, cancellationToken);
+        }
+
+        if (project.IncludesSilver)
+        {
+            if (bronze is null)
+                bronze = await RequireExistingLakehouseAsync(workspace.Id, project.BronzeLakehouse, cancellationToken);
+
             var messages = StageMessages(progress, PipelineStage.Silver);
             progress?.Report(new PipelineProgress(PipelineStage.Silver, PipelineExecutionState.Running, "Preparing Silver Fabric items"));
             silver = await _api.EnsureLakehouseAsync(workspace.Id, project.SilverLakehouse, messages, cancellationToken);
             silverNotebook = await _api.EnsureNotebookAsync(
                 workspace.Id,
                 NotebookDefinitionFactory.NotebookName(project, PipelineStage.Silver),
-                NotebookDefinitionFactory.Silver(workspace.Id, bronze!.Id, silver.Id),
+                NotebookDefinitionFactory.Silver(workspace.Id, bronze.Id, silver.Id),
                 messages,
                 cancellationToken);
             progress?.Report(new PipelineProgress(PipelineStage.Silver, PipelineExecutionState.Prepared, "Silver Lakehouse and notebook prepared"));
         }
-
-        if (project.StopAfter >= PipelineStage.Gold)
+        else if (project.StartFrom == PipelineStage.Gold)
         {
+            silver = await RequireExistingLakehouseAsync(workspace.Id, project.SilverLakehouse, cancellationToken);
+        }
+
+        if (project.IncludesGold)
+        {
+            if (silver is null)
+                silver = await RequireExistingLakehouseAsync(workspace.Id, project.SilverLakehouse, cancellationToken);
+
             var messages = StageMessages(progress, PipelineStage.Gold);
             progress?.Report(new PipelineProgress(PipelineStage.Gold, PipelineExecutionState.Running, "Preparing Gold Fabric items"));
             gold = await _api.EnsureLakehouseAsync(workspace.Id, project.GoldLakehouse, messages, cancellationToken);
             goldNotebook = await _api.EnsureNotebookAsync(
                 workspace.Id,
                 NotebookDefinitionFactory.NotebookName(project, PipelineStage.Gold),
-                NotebookDefinitionFactory.Gold(workspace.Id, silver!.Id, gold.Id),
+                NotebookDefinitionFactory.Gold(workspace.Id, silver.Id, gold.Id),
                 messages,
                 cancellationToken);
             progress?.Report(new PipelineProgress(PipelineStage.Gold, PipelineExecutionState.Prepared, "Gold Lakehouse and notebook prepared"));
@@ -248,8 +300,9 @@ public sealed class FabricPipelineRunner
         IProgress<PipelineProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        if (project.StopAfter < PipelineStage.Bronze)
-            throw new InvalidOperationException("Choose Bronze or a later stage before uploading to Fabric.");
+        PipelinePlanner.Build(project);
+        if (!project.IncludesBronze)
+            throw new InvalidOperationException("Bronze is outside the selected StartFrom/StopAfter range. Include Bronze before uploading raw data with this project.");
         EnsureLiveSupported(project);
 
         var workspace = await _api.ResolveWorkspaceAsync(project.Workspace, cancellationToken);
@@ -268,49 +321,59 @@ public sealed class FabricPipelineRunner
         IProgress<PipelineProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        PipelinePlanner.Build(project);
         EnsureLiveSupported(project);
         if (project.StopAfter > PipelineStage.Gold)
             throw new NotSupportedException("End-to-end native execution is implemented through Gold. Choose Gold or earlier for Run selected pipeline.");
 
         var dataFolder = Path.Combine(generatedRoot, "data");
         var cacheFolder = Path.Combine(generatedRoot, "cache");
-        var plannedOrders = PipelinePlanner.Build(project).OrdersCount;
+        var uploaded = new List<string>();
+        var jobs = new List<FabricJobResult>();
 
-        progress?.Report(new PipelineProgress(PipelineStage.Generate, PipelineExecutionState.Running, $"Generating {plannedOrders:N0} {project.RawFormat} orders"));
-        await _generator.GenerateAsync(project, repositoryRoot, dataFolder, cacheFolder, cancellationToken);
-        progress?.Report(new PipelineProgress(PipelineStage.Generate, PipelineExecutionState.Completed, $"Generated data in {dataFolder}"));
+        if (project.IncludesGeneration)
+        {
+            var plannedOrders = PipelinePlanner.Build(project).OrdersCount;
+            progress?.Report(new PipelineProgress(PipelineStage.Generate, PipelineExecutionState.Running, $"Generating {plannedOrders:N0} {project.RawFormat} orders"));
+            await _generator.GenerateAsync(project, repositoryRoot, dataFolder, cacheFolder, cancellationToken);
+            progress?.Report(new PipelineProgress(PipelineStage.Generate, PipelineExecutionState.Completed, $"Generated data in {dataFolder}"));
+        }
 
         if (project.StopAfter == PipelineStage.Generate)
         {
             var localOnly = new FabricProvisioningResult(
                 new FabricWorkspaceInfo(string.Empty, "Local only", "Local"),
                 null, null, null, null, null, null);
-            return new FabricPipelineRunResult(localOnly, Array.Empty<string>(), Array.Empty<FabricJobResult>(), dataFolder);
+            return new FabricPipelineRunResult(localOnly, uploaded, jobs, dataFolder);
         }
 
         var prepared = await PrepareAsync(project, progress, cancellationToken);
-        var uploadMessages = StageMessages(progress, PipelineStage.Bronze);
-        var uploaded = await _uploader.UploadAsync(
-            project.RawFormat,
-            dataFolder,
-            prepared.Workspace.Id,
-            prepared.BronzeLakehouse!.Id,
-            uploadMessages,
-            cancellationToken);
 
-        var jobs = new List<FabricJobResult>();
-        var apiMessagesBronze = StageMessages(progress, PipelineStage.Bronze);
-        progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Running, "Executing Bronze notebook"));
-        var bronzeJob = await _api.RunNotebookAndWaitAsync(
-            prepared.Workspace.Id,
-            prepared.BronzeNotebook!.Id,
-            prepared.BronzeNotebook.DisplayName,
-            apiMessagesBronze,
-            cancellationToken);
-        jobs.Add(bronzeJob);
-        progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Completed, "Bronze materialization completed"));
+        if (project.IncludesBronze)
+        {
+            var uploadMessages = StageMessages(progress, PipelineStage.Bronze);
+            var uploadedNow = await _uploader.UploadAsync(
+                project.RawFormat,
+                dataFolder,
+                prepared.Workspace.Id,
+                prepared.BronzeLakehouse!.Id,
+                uploadMessages,
+                cancellationToken);
+            uploaded.AddRange(uploadedNow);
 
-        if (project.StopAfter >= PipelineStage.Silver)
+            var apiMessages = StageMessages(progress, PipelineStage.Bronze);
+            progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Running, "Executing Bronze notebook"));
+            var bronzeJob = await _api.RunNotebookAndWaitAsync(
+                prepared.Workspace.Id,
+                prepared.BronzeNotebook!.Id,
+                prepared.BronzeNotebook.DisplayName,
+                apiMessages,
+                cancellationToken);
+            jobs.Add(bronzeJob);
+            progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Completed, "Bronze materialization completed"));
+        }
+
+        if (project.IncludesSilver)
         {
             var apiMessages = StageMessages(progress, PipelineStage.Silver);
             progress?.Report(new PipelineProgress(PipelineStage.Silver, PipelineExecutionState.Running, "Executing Silver notebook"));
@@ -324,7 +387,7 @@ public sealed class FabricPipelineRunner
             progress?.Report(new PipelineProgress(PipelineStage.Silver, PipelineExecutionState.Completed, "Silver transformation completed"));
         }
 
-        if (project.StopAfter >= PipelineStage.Gold)
+        if (project.IncludesGold)
         {
             var apiMessages = StageMessages(progress, PipelineStage.Gold);
             progress?.Report(new PipelineProgress(PipelineStage.Gold, PipelineExecutionState.Running, "Executing Gold notebook"));
@@ -341,6 +404,46 @@ public sealed class FabricPipelineRunner
         return new FabricPipelineRunResult(prepared, uploaded, jobs, dataFolder);
     }
 
+    private async Task<FabricItemInfo> RequireExistingLakehouseAsync(
+        string workspaceId,
+        string displayName,
+        CancellationToken cancellationToken)
+    {
+        var items = await _api.ListItemsAsync(workspaceId, "Lakehouse", cancellationToken);
+        return FindExactItem(items, "Lakehouse", displayName)
+            ?? throw new InvalidOperationException($"Required upstream Lakehouse '{displayName}' does not exist. Run its upstream stage first or change StartFrom.");
+    }
+
+    private static FabricItemInfo? FindExactItem(
+        IEnumerable<FabricItemInfo> items,
+        string type,
+        string displayName)
+        => items.FirstOrDefault(item =>
+            item.Type.Equals(type, StringComparison.OrdinalIgnoreCase)
+            && item.DisplayName.Equals(displayName, StringComparison.OrdinalIgnoreCase));
+
+    private static IReadOnlyList<string> MissingRawTables(string dataFolder, RawFormat format)
+    {
+        if (!Directory.Exists(dataFolder))
+            return ExpectedRawTables;
+
+        var missing = new List<string>();
+        foreach (var table in ExpectedRawTables)
+        {
+            var exists = format switch
+            {
+                RawFormat.Csv => File.Exists(Path.Combine(dataFolder, $"{table}.csv")),
+                RawFormat.Parquet => File.Exists(Path.Combine(dataFolder, $"{table}.parquet")),
+                RawFormat.Delta => Directory.Exists(Path.Combine(dataFolder, table))
+                    && Directory.Exists(Path.Combine(dataFolder, table, "_delta_log")),
+                _ => false
+            };
+            if (!exists)
+                missing.Add(table);
+        }
+        return missing;
+    }
+
     private static IProgress<string> StageMessages(
         IProgress<PipelineProgress>? progress,
         PipelineStage stage)
@@ -351,7 +454,9 @@ public sealed class FabricPipelineRunner
     {
         if (project.Scenario != BusinessScenario.SalesBi)
             throw new NotSupportedException("Live generation and Fabric execution are currently implemented for SalesBi only.");
-        if (project.StopAfter >= PipelineStage.Bronze
+
+        var needsFabric = project.StopAfter >= PipelineStage.Bronze;
+        if (needsFabric
             && string.IsNullOrWhiteSpace(project.Workspace.WorkspaceId)
             && string.IsNullOrWhiteSpace(project.Workspace.WorkspaceName))
         {
