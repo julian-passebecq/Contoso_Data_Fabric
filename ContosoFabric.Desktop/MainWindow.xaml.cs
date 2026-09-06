@@ -1,12 +1,15 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using ContosoFabric.Core.Generation;
 using ContosoFabric.Core.Models;
 using ContosoFabric.Core.Planning;
+using ContosoFabric.Core.Projects;
 using ContosoFabric.Fabric.Api;
 using ContosoFabric.Fabric.OneLake;
 using ContosoFabric.Fabric.Pipeline;
+using Microsoft.Win32;
 
 namespace ContosoFabric.Desktop;
 
@@ -18,6 +21,11 @@ public partial class MainWindow : Window
     private readonly FabricPipelineRunner _runner;
     private readonly Dictionary<PipelineStage, PipelineExecutionState> _runtimeStates = new();
     private CancellationTokenSource? _operationCancellation;
+    private string? _projectFilePath;
+    private string? _loadedWorkspaceName;
+    private string? _loadedWorkspaceId;
+    private int _requestedSeed;
+    private bool _applyingProject;
 
     public MainWindow()
     {
@@ -26,25 +34,55 @@ public partial class MainWindow : Window
 
         ScenarioBox.ItemsSource = Enum.GetValues<BusinessScenario>();
         ScaleBox.ItemsSource = Enum.GetValues<DataScale>();
-        YearsBox.ItemsSource = Enumerable.Range(1, 10).ToArray();
+        YearsBox.ItemsSource = Enumerable.Range(1, 20).ToArray();
         FormatBox.ItemsSource = Enum.GetValues<RawFormat>();
         StopAfterBox.ItemsSource = Enum.GetValues<PipelineStage>();
 
-        ScenarioBox.SelectedItem = BusinessScenario.SalesBi;
-        ScaleBox.SelectedItem = DataScale.Small;
-        YearsBox.SelectedItem = 3;
-        FormatBox.SelectedItem = RawFormat.Parquet;
-        StopAfterBox.SelectedItem = PipelineStage.Bronze;
-
+        ApplyProject(CreateDefaultProject());
         Closed += (_, _) => _fabricApi.Dispose();
         RenderPlan();
     }
+
+    private static FabricProject CreateDefaultProject() => new(
+        Name: "contoso-fabric-sales",
+        Scenario: BusinessScenario.SalesBi,
+        Scale: DataScale.Small,
+        Years: 3,
+        RawFormat: RawFormat.Parquet,
+        StopAfter: PipelineStage.Bronze,
+        Workspace: new FabricWorkspaceTarget(),
+        BronzeLakehouse: "Contoso_Bronze",
+        SilverLakehouse: "Contoso_Silver",
+        GoldLakehouse: "Contoso_Gold",
+        RequestedSeed: 0,
+        OrdersOverride: null,
+        StartDate: new DateTime(2014, 1, 1));
 
     private FabricProject ReadProject()
     {
         var selectedWorkspace = WorkspaceBox.SelectedItem as FabricWorkspaceInfo;
         var workspaceName = selectedWorkspace?.DisplayName ?? WorkspaceBox.Text.Trim();
         var workspaceId = selectedWorkspace?.Id;
+
+        if (workspaceId is null
+            && !string.IsNullOrWhiteSpace(_loadedWorkspaceId)
+            && string.Equals(workspaceName, _loadedWorkspaceName, StringComparison.OrdinalIgnoreCase))
+        {
+            workspaceId = _loadedWorkspaceId;
+        }
+
+        int? ordersOverride = null;
+        var customOrdersText = OrdersOverrideBox.Text
+            .Trim()
+            .Replace(" ", string.Empty)
+            .Replace(",", string.Empty)
+            .Replace("_", string.Empty);
+        if (!string.IsNullOrWhiteSpace(customOrdersText))
+        {
+            if (!int.TryParse(customOrdersText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedOrders))
+                throw new FormatException("Custom orders must be a whole number, for example 500000.");
+            ordersOverride = parsedOrders;
+        }
 
         return new FabricProject(
             Name: ProjectNameBox.Text.Trim(),
@@ -56,7 +94,127 @@ public partial class MainWindow : Window
             Workspace: new FabricWorkspaceTarget(workspaceName, workspaceId),
             BronzeLakehouse: BronzeLakehouseBox.Text.Trim(),
             SilverLakehouse: SilverLakehouseBox.Text.Trim(),
-            GoldLakehouse: GoldLakehouseBox.Text.Trim());
+            GoldLakehouse: GoldLakehouseBox.Text.Trim(),
+            RequestedSeed: _requestedSeed,
+            OrdersOverride: ordersOverride,
+            StartDate: StartDatePicker.SelectedDate?.Date);
+    }
+
+    private void ApplyProject(FabricProject project)
+    {
+        _applyingProject = true;
+        try
+        {
+            ProjectNameBox.Text = project.Name;
+            ScenarioBox.SelectedItem = project.Scenario;
+            ScaleBox.SelectedItem = project.Scale;
+            OrdersOverrideBox.Text = project.OrdersOverride?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+            StartDatePicker.SelectedDate = project.EffectiveStartDate;
+            YearsBox.SelectedItem = project.Years;
+            FormatBox.SelectedItem = project.RawFormat;
+            StopAfterBox.SelectedItem = project.StopAfter;
+            BronzeLakehouseBox.Text = project.BronzeLakehouse;
+            SilverLakehouseBox.Text = project.SilverLakehouse;
+            GoldLakehouseBox.Text = project.GoldLakehouse;
+
+            _requestedSeed = project.RequestedSeed;
+            _loadedWorkspaceName = project.Workspace.WorkspaceName;
+            _loadedWorkspaceId = project.Workspace.WorkspaceId;
+
+            var knownWorkspaces = (WorkspaceBox.ItemsSource as IEnumerable<FabricWorkspaceInfo>)?.ToArray()
+                ?? Array.Empty<FabricWorkspaceInfo>();
+            var match = !string.IsNullOrWhiteSpace(project.Workspace.WorkspaceId)
+                ? knownWorkspaces.FirstOrDefault(x => x.Id.Equals(project.Workspace.WorkspaceId, StringComparison.OrdinalIgnoreCase))
+                : knownWorkspaces.FirstOrDefault(x => x.DisplayName.Equals(project.Workspace.WorkspaceName, StringComparison.OrdinalIgnoreCase));
+
+            WorkspaceBox.SelectedItem = match;
+            if (match is null)
+                WorkspaceBox.Text = project.Workspace.WorkspaceName ?? string.Empty;
+        }
+        finally
+        {
+            _applyingProject = false;
+        }
+    }
+
+    private void NewProject_Click(object sender, RoutedEventArgs e)
+    {
+        _runtimeStates.Clear();
+        _projectFilePath = null;
+        ApplyProject(CreateDefaultProject());
+        UpdateProjectFileLabel();
+        WorkspaceStatusText.Text = "Not connected";
+        RenderPlan(false);
+        StatusText.Text = "New unsaved project.";
+    }
+
+    private async void OpenProject_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Open Contoso Fabric project",
+            Filter = "Contoso Fabric project (*.json)|*.json|All files (*.*)|*.*",
+            DefaultExt = ".json",
+            CheckFileExists = true
+        };
+
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        await RunBusyAsync(async cancellationToken =>
+        {
+            var project = await ProjectFileService.LoadAsync(dialog.FileName, cancellationToken);
+            _runtimeStates.Clear();
+            _projectFilePath = dialog.FileName;
+            ApplyProject(project);
+            UpdateProjectFileLabel();
+            RenderPlan(false);
+            StatusText.Text = $"Opened project: {Path.GetFileName(dialog.FileName)}";
+        });
+    }
+
+    private async void SaveProject_Click(object sender, RoutedEventArgs e)
+    {
+        var target = _projectFilePath;
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            var dialog = new SaveFileDialog
+            {
+                Title = "Save Contoso Fabric project",
+                Filter = "Contoso Fabric project (*.json)|*.json|All files (*.*)|*.*",
+                DefaultExt = ".json",
+                AddExtension = true,
+                FileName = $"{SanitizeFileName(ProjectNameBox.Text)}.fabric.json"
+            };
+
+            if (dialog.ShowDialog(this) != true)
+                return;
+            target = dialog.FileName;
+        }
+
+        await RunBusyAsync(async cancellationToken =>
+        {
+            var project = ReadProject();
+            await ProjectFileService.SaveAsync(project, target!, cancellationToken);
+            _projectFilePath = target;
+            _loadedWorkspaceName = project.Workspace.WorkspaceName;
+            _loadedWorkspaceId = project.Workspace.WorkspaceId;
+            UpdateProjectFileLabel();
+            StatusText.Text = $"Saved project: {Path.GetFileName(target)}";
+        });
+    }
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var cleaned = new string(value.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? "contoso-fabric" : cleaned;
+    }
+
+    private void UpdateProjectFileLabel()
+    {
+        ProjectFileText.Text = _projectFilePath is null ? "Unsaved project" : Path.GetFileName(_projectFilePath);
+        ProjectFileText.ToolTip = _projectFilePath ?? "Project has not been saved yet.";
     }
 
     private void Plan_Click(object sender, RoutedEventArgs e)
@@ -67,7 +225,7 @@ public partial class MainWindow : Window
 
     private void StopAfterBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (IsLoaded)
+        if (IsLoaded && !_applyingProject)
         {
             _runtimeStates.Clear();
             RenderPlan();
@@ -84,7 +242,7 @@ public partial class MainWindow : Window
             foreach (var step in plan.Steps)
                 PipelinePanel.Children.Add(CreateStepCard(step));
 
-            PlanSummaryText.Text = $"{plan.OrdersCount:N0} orders • {plan.Project.RawFormat} • stop after {plan.Project.StopAfter}";
+            PlanSummaryText.Text = $"{plan.OrdersCount:N0} orders • {plan.Project.EffectiveStartDate:yyyy-MM-dd} + {plan.Project.Years}y • {plan.Project.RawFormat} • stop after {plan.Project.StopAfter}";
             WarningBorder.Visibility = plan.Warnings.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             WarningText.Text = string.Join(Environment.NewLine, plan.Warnings.Select(warning => $"• {warning}"));
             RunPipelineButton.IsEnabled = plan.Project.StopAfter <= PipelineStage.Gold && _operationCancellation is null;
@@ -104,6 +262,7 @@ public partial class MainWindow : Window
         var statusText = runtimeState?.ToString() ?? (step.Implemented ? "Ready" : "Roadmap");
         var statusColor = runtimeState switch
         {
+            PipelineExecutionState.Prepared => Color.FromRgb(90, 75, 150),
             PipelineExecutionState.Running => Color.FromRgb(0, 95, 184),
             PipelineExecutionState.Completed => Color.FromRgb(20, 110, 55),
             PipelineExecutionState.Failed => Color.FromRgb(170, 30, 45),
@@ -161,9 +320,28 @@ public partial class MainWindow : Window
     {
         await RunBusyAsync(async cancellationToken =>
         {
+            var requestedName = WorkspaceBox.Text.Trim();
+            var requestedId = (WorkspaceBox.SelectedItem as FabricWorkspaceInfo)?.Id ?? _loadedWorkspaceId;
+
             StatusText.Text = "Reading accessible Fabric workspaces...";
             var workspaces = await _fabricApi.ListWorkspacesAsync(cancellationToken);
             WorkspaceBox.ItemsSource = workspaces;
+
+            var match = !string.IsNullOrWhiteSpace(requestedId)
+                ? workspaces.FirstOrDefault(x => x.Id.Equals(requestedId, StringComparison.OrdinalIgnoreCase))
+                : workspaces.FirstOrDefault(x => x.DisplayName.Equals(requestedName, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                WorkspaceBox.SelectedItem = match;
+                _loadedWorkspaceName = match.DisplayName;
+                _loadedWorkspaceId = match.Id;
+            }
+            else
+            {
+                WorkspaceBox.SelectedItem = null;
+                WorkspaceBox.Text = requestedName;
+            }
+
             WorkspaceStatusText.Text = $"{workspaces.Count} workspaces";
             StatusText.Text = workspaces.Count == 0
                 ? "No Admin/Member/Contributor workspaces were returned for the current identity."
@@ -183,7 +361,7 @@ public partial class MainWindow : Window
             var output = Path.Combine(root, "generated", "data");
             var cache = Path.Combine(root, "generated", "cache");
 
-            UpdateStage(PipelineStage.Generate, PipelineExecutionState.Running, $"Generating {project.Scale} {project.RawFormat} data...");
+            UpdateStage(PipelineStage.Generate, PipelineExecutionState.Running, $"Generating {PipelinePlanner.Build(project).OrdersCount:N0} {project.RawFormat} orders...");
             await _generator.GenerateAsync(project, root, output, cache, cancellationToken);
             UpdateStage(PipelineStage.Generate, PipelineExecutionState.Completed, $"Generation complete: {output}");
         });
@@ -292,9 +470,13 @@ public partial class MainWindow : Window
         PrepareButton.IsEnabled = !busy;
         UploadButton.IsEnabled = !busy;
         RefreshWorkspacesButton.IsEnabled = !busy;
+        NewProjectButton.IsEnabled = !busy;
+        OpenProjectButton.IsEnabled = !busy;
+        SaveProjectButton.IsEnabled = !busy;
         StopAfterBox.IsEnabled = !busy;
         CancelButton.IsEnabled = busy;
-        RunPipelineButton.IsEnabled = !busy && (StopAfterBox.SelectedItem as PipelineStage? ?? PipelineStage.Bronze) <= PipelineStage.Gold;
+        var selectedStop = StopAfterBox.SelectedItem is PipelineStage stage ? stage : PipelineStage.Bronze;
+        RunPipelineButton.IsEnabled = !busy && selectedStop <= PipelineStage.Gold;
     }
 
     private static string FindRepositoryRoot()
