@@ -32,7 +32,7 @@ public sealed class LegacyGeneratorAdapter
 
         var plan = PipelinePlanner.Build(project);
         config.OrdersCount = plan.OrdersCount;
-        config.StartDT = new DateTime(2014, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        config.StartDT = DateTime.SpecifyKind(project.EffectiveStartDate.Date, DateTimeKind.Utc);
         config.YearsCount = project.Years;
         config.OutputFormat = project.RawFormat switch
         {
