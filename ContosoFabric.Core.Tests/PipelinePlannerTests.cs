@@ -16,12 +16,20 @@ public sealed class PipelinePlannerTests
     }
 
     [Fact]
-    public void Gold_stop_from_generate_contains_all_native_execution_stages()
+    public void Report_stop_from_generate_contains_complete_native_bi_pipeline()
     {
-        var plan = PipelinePlanner.Build(Project(stopAfter: PipelineStage.Gold));
+        var plan = PipelinePlanner.Build(Project(stopAfter: PipelineStage.Report));
 
         Assert.Equal(
-            new[] { PipelineStage.Generate, PipelineStage.Bronze, PipelineStage.Silver, PipelineStage.Gold },
+            new[]
+            {
+                PipelineStage.Generate,
+                PipelineStage.Bronze,
+                PipelineStage.Silver,
+                PipelineStage.Gold,
+                PipelineStage.SemanticModel,
+                PipelineStage.Report
+            },
             plan.Steps.Select(step => step.Stage).ToArray());
         Assert.All(plan.Steps, step => Assert.True(step.Implemented));
     }
@@ -38,26 +46,46 @@ public sealed class PipelinePlannerTests
     }
 
     [Fact]
-    public void Gold_only_is_a_valid_single_stage_range()
+    public void Semantic_model_to_report_is_valid_metadata_only_range()
     {
-        var plan = PipelinePlanner.Build(Project(startFrom: PipelineStage.Gold, stopAfter: PipelineStage.Gold));
+        var plan = PipelinePlanner.Build(Project(startFrom: PipelineStage.SemanticModel, stopAfter: PipelineStage.Report));
+
+        Assert.Equal(
+            new[] { PipelineStage.SemanticModel, PipelineStage.Report },
+            plan.Steps.Select(step => step.Stage).ToArray());
+        Assert.Contains(plan.Warnings, warning => warning.Contains("Gold Lakehouse", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Report_only_is_a_valid_single_stage_range()
+    {
+        var plan = PipelinePlanner.Build(Project(startFrom: PipelineStage.Report, stopAfter: PipelineStage.Report));
 
         Assert.Single(plan.Steps);
-        Assert.Equal(PipelineStage.Gold, plan.Steps[0].Stage);
+        Assert.Equal(PipelineStage.Report, plan.Steps[0].Stage);
+        Assert.Contains(plan.Warnings, warning => warning.Contains("semantic model", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
     public void Start_from_later_than_stop_after_is_rejected()
     {
-        var project = Project(startFrom: PipelineStage.Gold, stopAfter: PipelineStage.Silver);
+        var project = Project(startFrom: PipelineStage.Report, stopAfter: PipelineStage.SemanticModel);
 
         Assert.Throws<ArgumentException>(() => PipelinePlanner.Build(project));
     }
 
     [Fact]
-    public void Roadmap_stages_cannot_be_used_as_start_stage()
+    public void Semantic_model_name_is_required_when_report_uses_it_as_dependency()
     {
-        var project = Project(startFrom: PipelineStage.SemanticModel, stopAfter: PipelineStage.SemanticModel);
+        var project = Project(startFrom: PipelineStage.Report, stopAfter: PipelineStage.Report) with { SemanticModelName = "" };
+
+        Assert.Throws<ArgumentException>(() => PipelinePlanner.Build(project));
+    }
+
+    [Fact]
+    public void Report_name_is_required_when_report_stage_is_selected()
+    {
+        var project = Project(startFrom: PipelineStage.Report, stopAfter: PipelineStage.Report) with { ReportName = "" };
 
         Assert.Throws<ArgumentException>(() => PipelinePlanner.Build(project));
     }
@@ -115,5 +143,7 @@ public sealed class PipelinePlannerTests
             RequestedSeed: requestedSeed,
             OrdersOverride: ordersOverride,
             StartDate: new DateTime(2014, 1, 1),
-            StartFrom: startFrom);
+            StartFrom: startFrom,
+            SemanticModelName: "Planner_Model",
+            ReportName: "Planner_Report");
 }
