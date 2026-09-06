@@ -48,4 +48,10 @@ public sealed record FabricProject(
     string BronzeLakehouse = "Contoso_Bronze",
     string SilverLakehouse = "Contoso_Silver",
     string GoldLakehouse = "Contoso_Gold",
-    int RequestedSeed = 0);
+    int RequestedSeed = 0,
+    int? OrdersOverride = null,
+    DateTime? StartDate = null)
+{
+    public DateTime EffectiveStartDate => StartDate?.Date
+        ?? new DateTime(2014, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+}
