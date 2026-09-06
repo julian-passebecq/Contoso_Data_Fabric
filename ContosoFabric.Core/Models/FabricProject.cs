@@ -52,9 +52,22 @@ public sealed record FabricProject(
     string GoldLakehouse = "Contoso_Gold",
     int RequestedSeed = 0,
     int? OrdersOverride = null,
-    DateTime? StartDate = null)
+    DateTime? StartDate = null,
+    PipelineStage StartFrom = PipelineStage.Generate)
 {
     [JsonIgnore]
     public DateTime EffectiveStartDate => StartDate?.Date
         ?? new DateTime(2014, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    [JsonIgnore]
+    public bool IncludesGeneration => StartFrom <= PipelineStage.Generate && StopAfter >= PipelineStage.Generate;
+
+    [JsonIgnore]
+    public bool IncludesBronze => StartFrom <= PipelineStage.Bronze && StopAfter >= PipelineStage.Bronze;
+
+    [JsonIgnore]
+    public bool IncludesSilver => StartFrom <= PipelineStage.Silver && StopAfter >= PipelineStage.Silver;
+
+    [JsonIgnore]
+    public bool IncludesGold => StartFrom <= PipelineStage.Gold && StopAfter >= PipelineStage.Gold;
 }
