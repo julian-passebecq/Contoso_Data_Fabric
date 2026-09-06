@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text.Json;
 using Azure.Core;
 using Azure.Identity;
@@ -36,7 +35,7 @@ public sealed class FabricRestClient : IDisposable
         while (!string.IsNullOrWhiteSpace(next))
         {
             using var response = await SendAsync(HttpMethod.Get, next, null, cancellationToken);
-            var page = await ReadDocumentAsync(response, cancellationToken);
+            using var page = await ReadDocumentAsync(response, cancellationToken);
             if (page.RootElement.TryGetProperty("value", out var value))
             {
                 foreach (var item in value.EnumerateArray())
@@ -90,7 +89,7 @@ public sealed class FabricRestClient : IDisposable
         while (!string.IsNullOrWhiteSpace(next))
         {
             using var response = await SendAsync(HttpMethod.Get, next, null, cancellationToken);
-            var page = await ReadDocumentAsync(response, cancellationToken);
+            using var page = await ReadDocumentAsync(response, cancellationToken);
             if (page.RootElement.TryGetProperty("value", out var value))
             {
                 foreach (var item in value.EnumerateArray())
@@ -204,7 +203,7 @@ public sealed class FabricRestClient : IDisposable
         while (DateTimeOffset.UtcNow < deadline)
         {
             using var response = await SendAsync(HttpMethod.Get, location, null, cancellationToken);
-            var document = await ReadDocumentAsync(response, cancellationToken);
+            using var document = await ReadDocumentAsync(response, cancellationToken);
             var root = document.RootElement;
             var status = root.TryGetProperty("status", out var statusElement) ? statusElement.GetString() ?? "Unknown" : "Unknown";
             var id = root.TryGetProperty("id", out var idElement) ? idElement.GetString() ?? string.Empty : string.Empty;
@@ -264,7 +263,7 @@ public sealed class FabricRestClient : IDisposable
                 await Task.Delay(delay, cancellationToken);
 
             using var stateResponse = await SendAsync(HttpMethod.Get, $"operations/{operationId}", null, cancellationToken);
-            var document = await ReadDocumentAsync(stateResponse, cancellationToken);
+            using var document = await ReadDocumentAsync(stateResponse, cancellationToken);
             var status = document.RootElement.TryGetProperty("status", out var state) ? state.GetString() ?? "Unknown" : "Unknown";
 
             if (status.Equals("Succeeded", StringComparison.OrdinalIgnoreCase))
