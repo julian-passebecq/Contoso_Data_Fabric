@@ -6,6 +6,9 @@
 # csv files are too big for github repository
 Contoso Main/Customers from Fake Name Generator/*.csv
 
+# Local Fabric data, reference cache and run diagnostics
+/generated/
+
 # User-specific files
 *.rsuser
 *.suo

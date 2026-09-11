@@ -253,6 +253,10 @@ namespace DatabaseGenerator
                 Logger.Info($"EXCEPTION: {ex.ToString()}");
                 throw;
             }
+            finally
+            {
+                Logger.Close();
+            }
         }
 
 

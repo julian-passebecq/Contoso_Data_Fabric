@@ -380,12 +380,11 @@ public partial class MainWindow : Window
                 throw new NotSupportedException("Only SalesBi generation is implemented in the native C# vertical slice.");
 
             var root = FindRepositoryRoot();
-            var output = Path.Combine(root, "generated", "data");
-            var cache = Path.Combine(root, "generated", "cache");
-
-            UpdateStage(PipelineStage.Generate, PipelineExecutionState.Running, $"Generating {PipelinePlanner.Build(project).OrdersCount:N0} {project.RawFormat} orders...");
-            await _generator.GenerateAsync(project, root, output, cache, cancellationToken);
-            UpdateStage(PipelineStage.Generate, PipelineExecutionState.Completed, $"Generation complete: {output}");
+            var result = await _runner.RunToSelectedStageAsync(project, root,
+                Path.Combine(root, "generated"), CreatePipelineProgress(), cancellationToken);
+            AppendActivity($"Run receipt: {result.ReceiptPath}");
+            if (result.ReceiptWarning is not null)
+                AppendActivity(result.ReceiptWarning);
         });
     }
 
@@ -429,6 +428,9 @@ public partial class MainWindow : Window
             var generatedRoot = Path.Combine(root, "generated");
             var progress = CreatePipelineProgress();
             var result = await _runner.RunToSelectedStageAsync(project, root, generatedRoot, progress, cancellationToken);
+            AppendActivity($"Run receipt: {result.ReceiptPath}");
+            if (result.ReceiptWarning is not null)
+                AppendActivity(result.ReceiptWarning);
             if (!string.IsNullOrWhiteSpace(result.Provisioning.Workspace.Id))
                 WorkspaceStatusText.Text = $"{result.Provisioning.Workspace.DisplayName} • {result.Provisioning.Workspace.Id}";
 
@@ -445,7 +447,7 @@ public partial class MainWindow : Window
 
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
-        StatusText.Text = "Cancellation requested...";
+        StatusText.Text = "Cancellation requested. If local generation is active, it will finish before stopping; no later stages will start.";
         _operationCancellation?.Cancel();
     }
 
@@ -473,10 +475,11 @@ public partial class MainWindow : Window
         {
             await operation(_operationCancellation.Token);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
             StatusText.Text = "Operation cancelled.";
             AppendActivity("CANCEL Operation cancelled.");
+            AppendReceiptDiagnostic(ex);
         }
         catch (Exception ex)
         {
@@ -485,6 +488,7 @@ public partial class MainWindow : Window
             if (!running.Equals(default(KeyValuePair<PipelineStage, PipelineExecutionState>)))
                 _runtimeStates[running.Key] = PipelineExecutionState.Failed;
             AppendActivity($"FAIL  {ex.Message}");
+            AppendReceiptDiagnostic(ex);
             RenderPlan(false);
             MessageBox.Show(this, ex.Message, "Contoso Fabric Builder", MessageBoxButton.OK, MessageBoxImage.Error);
         }
@@ -495,6 +499,14 @@ public partial class MainWindow : Window
             SetBusy(false);
             RenderPlan(false);
         }
+    }
+
+    private void AppendReceiptDiagnostic(Exception exception)
+    {
+        if (exception.Data["ReceiptPath"] is string path)
+            AppendActivity($"Run receipt: {path}");
+        if (exception.Data["ReceiptSaveError"] is string error)
+            AppendActivity($"Could not finalize run receipt ({error}); its saved status may be incomplete.");
     }
 
     private void SetBusy(bool busy)

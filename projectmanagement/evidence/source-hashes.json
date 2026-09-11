@@ -1,0 +1,412 @@
+{
+  "capturedAtUtc": "2026-09-08T18:41:49.5957638Z",
+  "head": "47a65b75e0ec126c0c8a0372a1c27709659aa317",
+  "branch": "feat/csharp-fabric-desktop-v1",
+  "includesUncommittedBaseline": true,
+  "files": [
+    {
+      "path": "_test_data/IN/config_test.json",
+      "sha256": "f033630a7385c4e1babec66cb52b7dbc61fe1694163a82bbec1bacddf663d3c3"
+    },
+    {
+      "path": "_test_data/IN/data_test.xlsx",
+      "sha256": "841f8eb7e8887407d818a2a2fe62d082366d476047dfaa1cc18b48a34e1df8be"
+    },
+    {
+      "path": ".github/workflows/csharp-fabric-desktop.yml",
+      "sha256": "80731b78d70e3ac35316db9fc3595cdc4062ad288c7ac882f5af38365b88e39d"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "aee239ecff3c94763f67c698a8b21e83e132f6e5d80beba3080246ba85c6ee48"
+    },
+    {
+      "path": "ContosoDGV2.sln",
+      "sha256": "da57534b1fd8f3ddf8083acbedca907f2db13fdbb764902104e7771b37c4b5c0"
+    },
+    {
+      "path": "ContosoFabric.Core.Tests/ContosoFabric.Core.Tests.csproj",
+      "sha256": "3fe1d2b9a6775a8ccd66e2789ecfec3348c186d5df8572fe8b48e251e3c2038b"
+    },
+    {
+      "path": "ContosoFabric.Core.Tests/FabricDefinitionFactoryTests.cs",
+      "sha256": "59e8932de02713af3fa55c9271f0f367cedf28ce68887576271a31bfb0faed76"
+    },
+    {
+      "path": "ContosoFabric.Core.Tests/GenerationManifestTests.cs",
+      "sha256": "d5de9aa5115c8d101ef93980647eb910886ab8ae574badd2fc5ef0c0fe1d400c"
+    },
+    {
+      "path": "ContosoFabric.Core.Tests/GeneratorLifetimeTests.cs",
+      "sha256": "3ebc91afb0ccb2eaf0103002a971d3cd1ac2934d2fa7d355e5359f55ef2b8c55"
+    },
+    {
+      "path": "ContosoFabric.Core.Tests/GlobalUsings.cs",
+      "sha256": "f006e57ed1a5b38955badb20c52802393287eb620debf7d34d4cd51969b6c0fb"
+    },
+    {
+      "path": "ContosoFabric.Core.Tests/NotebookDefinitionTests.cs",
+      "sha256": "5aedea24d0e56bf3915cf8a8172bf86cb6a6f39fc969070fd970006deff8e815"
+    },
+    {
+      "path": "ContosoFabric.Core.Tests/PipelinePlannerTests.cs",
+      "sha256": "b301e0696f51ad62b898a054685ff370f38b7426b21188d8132922835d8f5914"
+    },
+    {
+      "path": "ContosoFabric.Core.Tests/PipelineRunReceiptTests.cs",
+      "sha256": "8b46b18ee286d00c2ebb2e0b298eb65bc2adae39bb06114d5e0d732fa5edeb68"
+    },
+    {
+      "path": "ContosoFabric.Core.Tests/ProjectFileServiceTests.cs",
+      "sha256": "5d54a87fb27341cede7dd86061b529700602234a47ce3d84abe21e2df3f15813"
+    },
+    {
+      "path": "ContosoFabric.Core/ContosoFabric.Core.csproj",
+      "sha256": "e54a285ccdba90598c427280e790f946c5b068e1fe5d282ceaff0eb6176b1183"
+    },
+    {
+      "path": "ContosoFabric.Core/Generation/GenerationManifest.cs",
+      "sha256": "09f89bd18fc855e05fafab2a8c0cd4bd228ba9c4be381d1cf7d5719fcb34b27e"
+    },
+    {
+      "path": "ContosoFabric.Core/Generation/LegacyGeneratorAdapter.cs",
+      "sha256": "6a672dc947cb3583e4669882f25e32d2dbca0759e2f2f9fb687079de62dd9bd5"
+    },
+    {
+      "path": "ContosoFabric.Core/Models/FabricProject.cs",
+      "sha256": "ff414ab2a22a4e4ede69a7e6f8484697b6652ad9408239bba5fea6562491b0ec"
+    },
+    {
+      "path": "ContosoFabric.Core/Planning/PipelinePlanner.cs",
+      "sha256": "5b11c37d72ed8e3df80477db55631fe1fc6c8a1613d338d62ec7c64c27a839ff"
+    },
+    {
+      "path": "ContosoFabric.Core/Projects/ProjectFileService.cs",
+      "sha256": "89b7c37a59d9ce2be735a797db29ce33365e9a420fe720e5569d99dc701245bc"
+    },
+    {
+      "path": "ContosoFabric.Desktop/App.xaml",
+      "sha256": "192bb7ff0380613db539c42d26d72c101ba1bf6256a1b5f077bc7ef6b28e0c97"
+    },
+    {
+      "path": "ContosoFabric.Desktop/App.xaml.cs",
+      "sha256": "646c431c52cca8dda3dbcdd537a97dc9aa244397df597eeb0b5b642903603f94"
+    },
+    {
+      "path": "ContosoFabric.Desktop/ContosoFabric.Desktop.csproj",
+      "sha256": "87f92fdde8982864310cbe62ce850d65c339501f21c26793801f6e171e944ff7"
+    },
+    {
+      "path": "ContosoFabric.Desktop/GlobalUsings.cs",
+      "sha256": "9087a69bb7c9490f6c6505a3cdc3ced73cf0a64d4cd3706b9148292a87bd4000"
+    },
+    {
+      "path": "ContosoFabric.Desktop/MainWindow.Preflight.cs",
+      "sha256": "c0d5acf4801500878161f997806348648c14ac290ce1eed8181a0c9785247a61"
+    },
+    {
+      "path": "ContosoFabric.Desktop/MainWindow.xaml",
+      "sha256": "38104f0f0743730e3ca81a2003c49d6505b5f6ce27194c766c157307d4975a5e"
+    },
+    {
+      "path": "ContosoFabric.Desktop/MainWindow.xaml.cs",
+      "sha256": "cedb9d549155086698bda170a9ea948c1cc7fcd0b6f4e1b6ec38def855be38e3"
+    },
+    {
+      "path": "ContosoFabric.Fabric/Api/FabricDefinitionDeployer.cs",
+      "sha256": "47cac019094054c6386984e831d01335cf4150630bc221f8107734a919097a4e"
+    },
+    {
+      "path": "ContosoFabric.Fabric/Api/FabricModels.cs",
+      "sha256": "c04a7b45dda3ba6ca15e7fa7b85862e9d9327a29cbf12089a2084d9318c5e0b0"
+    },
+    {
+      "path": "ContosoFabric.Fabric/Api/FabricRestClient.cs",
+      "sha256": "d5c46e529d1dafef1a233fb4e62c60cfa3ff51631956879fbcde42852a4f08e1"
+    },
+    {
+      "path": "ContosoFabric.Fabric/ContosoFabric.Fabric.csproj",
+      "sha256": "b3407baebf918f1ae745beacce5b82cab6f96f4527e26d0052afcc5c619af466"
+    },
+    {
+      "path": "ContosoFabric.Fabric/Definitions/FabricItemDefinition.cs",
+      "sha256": "572f491e43ad954e8bc4f06362ef4256490ba3418591afe5ab1081a6776fa8e8"
+    },
+    {
+      "path": "ContosoFabric.Fabric/Notebooks/NotebookDefinitionFactory.cs",
+      "sha256": "43dcebb93d14af94a35491793d2d80ea852bd8d2a03e2fd602d9057e58e31c89"
+    },
+    {
+      "path": "ContosoFabric.Fabric/OneLake/OneLakeRawUploader.cs",
+      "sha256": "b20e37fb9a0a978ba6d7914fc04e79efb1526006f34d149b370760029b7e71d6"
+    },
+    {
+      "path": "ContosoFabric.Fabric/Pipeline/FabricPipelineRunner.cs",
+      "sha256": "661400647b7313b0b18d56fdf76bae4f3642e40a6bc3914f8237b86d6a2a7954"
+    },
+    {
+      "path": "ContosoFabric.Fabric/Pipeline/PipelineRunReceipt.cs",
+      "sha256": "0260bb856d3d82cc816f9201bd9b59593fab0d1ba1f1048d99c6c91a318175de"
+    },
+    {
+      "path": "ContosoFabric.Fabric/Reports/ReportDefinitionFactory.cs",
+      "sha256": "859eb2ed6fa65104156c0fab17746d8f348af522692814ea40f0e06d49154a22"
+    },
+    {
+      "path": "ContosoFabric.Fabric/SemanticModel/SemanticModelDefinitionFactory.cs",
+      "sha256": "3d2e190258b563a8bda5c8456d9125bb216a84ae5a03471ef96557d5120032aa"
+    },
+    {
+      "path": "DatabaseGenerator/assemblygithash.cs",
+      "sha256": "02595d92878286401dbb1e687cad1ce2cc34d7806f5a836c9c209f096e16bc57"
+    },
+    {
+      "path": "DatabaseGenerator/assemblyinfo.cs",
+      "sha256": "323c599575ad96682cf4a60f23c63c1e8b805beeb5563294ce8aabf8bfbf37c1"
+    },
+    {
+      "path": "DatabaseGenerator/Config.cs",
+      "sha256": "0d0040b337f42094b111f515dc242b7f43bb56273027b10fdec98b5cc29f5e7d"
+    },
+    {
+      "path": "DatabaseGenerator/Consts.cs",
+      "sha256": "4c0fda8da3f53a449429d456479ba7209cc696eadf8e11d4e3780eccd45be01d"
+    },
+    {
+      "path": "DatabaseGenerator/Converter2OUT.cs",
+      "sha256": "1cd5fb79a161a749038ee698548b7b6ae8e3c44c79cd63e3ade7b1f2b738dc01"
+    },
+    {
+      "path": "DatabaseGenerator/CustomerRaw2Csv.cs",
+      "sha256": "bd592d595599c888afaeb7d86342eb221a74c61bc3ebc4222e74bb1f47d45182"
+    },
+    {
+      "path": "DatabaseGenerator/DatabaseGenerator.csproj",
+      "sha256": "772387ea17b189003c584e6f329511534355c457bc0a0ee9cb884e01d25ad962"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Csv/CsvCurrencyExchange.cs",
+      "sha256": "9b5760d758fff8464590ca61943e0b4fc0a673376918fbbb53b0757e0f9b8d13"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Csv/CsvCustomer.cs",
+      "sha256": "2074cf7c9afc2b9aeb3c0ffc52b9624bf4d13b049b758a4c18dee314cf890614"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Csv/CsvDateExtended.cs",
+      "sha256": "8c21f44f188f0af12ac4ca01dc1f0b924fff8a5b237bd01f292649e74dd923ec"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Csv/CsvProduct.cs",
+      "sha256": "13fed14b2c4482d7854a52c9d0e2547870fadd10e82141554e53bf796b56f400"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Csv/CsvStore.cs",
+      "sha256": "db74a4408df314fcffb08264df7b45b868892b5dbceeac7df70289d0386f66fc"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Csv/CSVWriter.cs",
+      "sha256": "94af9ae9e1b065fd310fb0893885e5dc0bba6105c6449051da2e1e698f8b59bb"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/IDataWriter.cs",
+      "sha256": "591c40f8520eb1c970df6938137c07f3c30ef766efefd357df06a52b2e673502"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Parquet/DeltaSchema.cs",
+      "sha256": "c1c0e9dbdfd7c0e7f09243163e132269f6d5a23635934f9eede5f1301803d460"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Parquet/ParquetCurrencyExchange.cs",
+      "sha256": "b9a3d37f4f8efaf8916ba862869c5fb9f4621da5915119ba8cd98527700dc1c4"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Parquet/ParquetCustomer.cs",
+      "sha256": "6d1a99157a49b9be475b24cc8d5bbe89db17b8067b269157eeffabafcbd24718"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Parquet/ParquetDateExtended.cs",
+      "sha256": "636a880ec222de5ee761163f7ae1b6decc8b8a84d26b0fad03d23e10db392ad7"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Parquet/ParquetOrder.cs",
+      "sha256": "9d7e5d057f0983372b326b44851ba6b350ab007be0f7cd7a014101b79b951394"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Parquet/ParquetOrderRow.cs",
+      "sha256": "cb7b13854e5ef98d6d6af9f3b23ee1f776ad6d94fad039bd4fb647c43597ebde"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Parquet/ParquetProduct.cs",
+      "sha256": "a75163e0637c3a868219416bdeb4f3773daca90bc679d639819616c2f622a693"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Parquet/ParquetSale.cs",
+      "sha256": "86d7e722d6db30e5931d3b98d013feff33bbc5028c9e1a1c21faaad00af89929"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Parquet/ParquetStore.cs",
+      "sha256": "881a5f88b1be5574d1c1a2ad45050f2fc20df27f246413f3a20659f8594fd8e7"
+    },
+    {
+      "path": "DatabaseGenerator/DataWriter/Parquet/ParquetWriter.cs",
+      "sha256": "8b966f784bab836ac0c117fc2702292d4f2eaec9cd645765fdf5d4a556264099"
+    },
+    {
+      "path": "DatabaseGenerator/DoublesArray.cs",
+      "sha256": "abf91bcee8ceb018e2ac0ae4eb90d08ec56567b91800b190b49ab0f0f331f38d"
+    },
+    {
+      "path": "DatabaseGenerator/ECBExchangesReader.cs",
+      "sha256": "92c0f2e8a90c39d6a710006fbcf2ad96bc2edc2942157e1493b7d7a25f5612b3"
+    },
+    {
+      "path": "DatabaseGenerator/Engine_Setup.cs",
+      "sha256": "97e84429456301a8664c4744137a8c849446a75dfe27340ef6e3481be53823aa"
+    },
+    {
+      "path": "DatabaseGenerator/Engine.cs",
+      "sha256": "d223131d5b24171b2d8d605151d72a9425b4fb0b2586fb13d9eed216583ebdf9"
+    },
+    {
+      "path": "DatabaseGenerator/ExcelReader.cs",
+      "sha256": "24e42c90767494565095c6c28a2e8873d765d8b8882a65b251ef75d3321ef509"
+    },
+    {
+      "path": "DatabaseGenerator/Fast/CustomerListFast.cs",
+      "sha256": "eb10726d86524f4e21b8aa24b1d7e7f34b2c2a8af5e9bcae4890f8ad9bf218f8"
+    },
+    {
+      "path": "DatabaseGenerator/Fast/ProductsFast.cs",
+      "sha256": "a7123e6d1647ef393e13cbf465d4d8e40f9ceb1300ecc19cf86001d8e7301c9e"
+    },
+    {
+      "path": "DatabaseGenerator/Logger.cs",
+      "sha256": "54d1f6adf279eb35df7ea3713f4568965a10511a04ccabd0012decf15bac4ff4"
+    },
+    {
+      "path": "DatabaseGenerator/Models/Category.cs",
+      "sha256": "b2744f3b2d5ba5fb7f4969dcce24dfe1af9963e1ec155886805e1b5469242726"
+    },
+    {
+      "path": "DatabaseGenerator/Models/CurrencyExchange.cs",
+      "sha256": "607bc36d50d1dcffa5f428e97d699bcb4093d2495e64c7cd6c60b948479c9ccd"
+    },
+    {
+      "path": "DatabaseGenerator/Models/Customer.cs",
+      "sha256": "75d1e8c227f159a18300e41398b5e84b81bd3fcca7de50169e6dee7d84ba3d47"
+    },
+    {
+      "path": "DatabaseGenerator/Models/CustomerCluster.cs",
+      "sha256": "b36bc197a7f6de811ee623fab46e54ccbf0c194954e1e033b091e00508815875"
+    },
+    {
+      "path": "DatabaseGenerator/Models/DateExtended.cs",
+      "sha256": "abed7aa5673bd7811d06125bc5cf833ea372874d3f4a7086d3b993f07b27b2da"
+    },
+    {
+      "path": "DatabaseGenerator/Models/GeoArea.cs",
+      "sha256": "32a1f61957046d467fb66f7f0a0bc93d844e3a0157b15cf59d21dbab685ccdc5"
+    },
+    {
+      "path": "DatabaseGenerator/Models/Order.cs",
+      "sha256": "1958955248568278b18243536be133569aed4bb7cebc01e94d7ce2a75fef6678"
+    },
+    {
+      "path": "DatabaseGenerator/Models/OrderRow.cs",
+      "sha256": "3b85356bd53b507e680c341a35e0c945b5557b2bb88040ad52faffb328a45dc3"
+    },
+    {
+      "path": "DatabaseGenerator/Models/Product.cs",
+      "sha256": "26812c363920b75df278d2c262279f627fc57d5aeaf55cb344d2869b93cbd834"
+    },
+    {
+      "path": "DatabaseGenerator/Models/Sale.cs",
+      "sha256": "8982427439f34ff79f4a9f4a1529f12896abefe34f6852fcfee48a3b803041b8"
+    },
+    {
+      "path": "DatabaseGenerator/Models/Store.cs",
+      "sha256": "e5aba3ffaa3df28e24381b7bafc79f28d5656e89ebab86246adce314ddf4cf33"
+    },
+    {
+      "path": "DatabaseGenerator/Models/SubCategory.cs",
+      "sha256": "22e59ff2c8b9b3113dc4d190095215cb6cd6cb3bf39c491b570f324976a00e61"
+    },
+    {
+      "path": "DatabaseGenerator/Models/SubCategoryLink.cs",
+      "sha256": "c4ab4d5eec238e5368160616173140cdae80068d6860c282ba217941ffbd3431"
+    },
+    {
+      "path": "DatabaseGenerator/Models/WeightedItem.cs",
+      "sha256": "91cd933bd76ec45910debe023e934ecb11f7a4099e0d83d18012e0c937328080"
+    },
+    {
+      "path": "DatabaseGenerator/MyMath.cs",
+      "sha256": "7ff19ecf0b891039e0d9e6a5b7599cf03bc85fc10edd848c374c492864eaef64"
+    },
+    {
+      "path": "DatabaseGenerator/MyRnd.cs",
+      "sha256": "b45b3bcb4055b16ef1d8cb9eec2f61b566d03b1580d3739a04786f9b49055951"
+    },
+    {
+      "path": "DatabaseGenerator/Program.cs",
+      "sha256": "bbe1c5dbf217fbea8eeffee194ee8ab290d6c749cbaa9fb1849b5935a8554a3c"
+    },
+    {
+      "path": "DatabaseGenerator/Properties/launchSettings.json",
+      "sha256": "e2836289985195b8cc451cea253513ec196baead044510920f0c2134292fef6a"
+    },
+    {
+      "path": "DatabaseGenerator/Utility.cs",
+      "sha256": "d7c1a1c9f101f3e11faa865b5b6edc55382521f319ee8c6d67e3cdc9a4667749"
+    },
+    {
+      "path": "docs/FABRIC_BUILDER_NATIVE.md",
+      "sha256": "264bd09644f6a786d42027c5113bbe77aaab26f9274f169a0c1f188f62fc4e62"
+    },
+    {
+      "path": "docs/GENERATION_STABILIZATION_2026-09-08.md",
+      "sha256": "f83fe047f10b61d9588aa424c0a3a08979f727310a17b21754bde2f6c99b2c83"
+    },
+    {
+      "path": "docs/READINESS_AUDIT_2026-09-08.md",
+      "sha256": "58ac12da5c71f53126bff5d71a45f34c031b6d331667c7667a5b424a3149bb38"
+    },
+    {
+      "path": "examples/sales-small-bronze.fabric.json",
+      "sha256": "7f754520dbdc94c38e08caa4c91aa44d08f02b6dc2bbbe47db087bbbf4425882"
+    },
+    {
+      "path": "examples/sales-small-full-bi.fabric.json",
+      "sha256": "fc2be5a1f785450cbef1a819622bf74994d5d3cad5b1983ed528655f29e58c05"
+    },
+    {
+      "path": "README.md",
+      "sha256": "822e665b35041c04f810404acd1f06ca900adf32063b4c07ae08e1aa1027aa79"
+    },
+    {
+      "path": "run_fabric_builder.ps1",
+      "sha256": "f04c5e764829f96647961d7f5e58c11ac98590f9887199898796655f1d682aa8"
+    },
+    {
+      "path": "scripts/build_data/config.json",
+      "sha256": "c958ae66beb126214f64a0b003fdfc6c23110e2159e4ece02f1038c17807bdfa"
+    },
+    {
+      "path": "scripts/build_data/data.xlsx",
+      "sha256": "841f8eb7e8887407d818a2a2fe62d082366d476047dfaa1cc18b48a34e1df8be"
+    },
+    {
+      "path": "scripts/publish_tool/config.json",
+      "sha256": "f033630a7385c4e1babec66cb52b7dbc61fe1694163a82bbec1bacddf663d3c3"
+    },
+    {
+      "path": "scripts/publish_tool/data.xlsx",
+      "sha256": "841f8eb7e8887407d818a2a2fe62d082366d476047dfaa1cc18b48a34e1df8be"
+    },
+    {
+      "path": "scripts/sql/SQLBI_CreateSqlDatabases.ps1",
+      "sha256": "18a5d4a3e4d40e093605fb12d5dd14843d99ef3533d26eaa2b6964fd03ad03a4"
+    }
+  ]
+}

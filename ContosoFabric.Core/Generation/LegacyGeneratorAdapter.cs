@@ -7,12 +7,38 @@ namespace ContosoFabric.Core.Generation;
 
 public sealed class LegacyGeneratorAdapter
 {
+    // The upstream engine uses a process-wide logger. Keep runs serialized,
+    // including their manifest reads, even across different adapter instances.
+    private static readonly SemaphoreSlim GenerationGate = new(1, 1);
+
     public async Task GenerateAsync(
         FabricProject project,
         string repositoryRoot,
         string outputFolder,
         string cacheFolder,
         CancellationToken cancellationToken = default)
+    {
+        await GenerationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // Engine preparation includes synchronous I/O and CPU work. Never
+            // execute it on the WPF synchronization context. Cancellation waits
+            // for the active engine to finish; it must not release the gate early.
+            await Task.Run(() => GenerateCoreAsync(project, repositoryRoot, outputFolder,
+                cacheFolder, cancellationToken), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            GenerationGate.Release();
+        }
+    }
+
+    private static async Task GenerateCoreAsync(
+        FabricProject project,
+        string repositoryRoot,
+        string outputFolder,
+        string cacheFolder,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 

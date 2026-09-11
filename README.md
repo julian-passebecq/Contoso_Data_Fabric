@@ -107,6 +107,24 @@ The tests cover range planning, project JSON persistence, Direct Lake TMDL const
 
 CI deliberately does **not** mutate a real Fabric tenant. Live validation still requires an authenticated tenant and a capacity-backed Fabric workspace.
 
+### Local stabilization (2026-09-08)
+
+The generator now closes its log on success and failure, allowing the app to create
+`truth_manifest.json` and run again in the same process. Generation runs on a worker
+thread and adapter calls are serialized because the original logger is shared.
+Cancellation waits for active generation to finish and prevents later stages from starting.
+
+**Generate** and **Run selected range** save a receipt under
+`generated/runs/<run-id>/receipt.json`; its path appears in the activity log.
+Receipts capture timing, outcome, stage transitions, returned item/job identifiers,
+and error type/HTTP status, without raw exception messages or API bodies.
+They are written at start and finalization; an interrupted process may leave a
+`running` receipt. Separate Prepare/Upload actions do not yet create receipts.
+
+Local verification: Release build with zero warnings/errors, **31/31 tests passed**,
+plus two consecutive real Tiny Parquet runs with manifest counts checked against
+Parquet row counts. See [the stabilization notes](docs/GENERATION_STABILIZATION_2026-09-08.md).
+
 ## Original generator
 
 DataGenerator generates sample data ready to be imported into Power BI or Fabric OneLake for analysis. This repository is based on the V2 evolution of the original SQLBI Contoso generator.

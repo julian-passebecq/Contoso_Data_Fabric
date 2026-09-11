@@ -13,8 +13,21 @@ namespace DatabaseGenerator
 
         public static void Init(string fileName)
         {
-            _streamWriter = new StreamWriter(fileName);
-            _streamWriter.AutoFlush = true;  // because this is a log file
+            lock (_multiThreadLock)
+            {
+                _streamWriter?.Dispose();
+                _streamWriter = new StreamWriter(fileName) { AutoFlush = true };
+                _previousDT = DateTime.UtcNow;
+            }
+        }
+
+        public static void Close()
+        {
+            lock (_multiThreadLock)
+            {
+                _streamWriter?.Dispose();
+                _streamWriter = null;
+            }
         }
 
         public static void Info(string msg)

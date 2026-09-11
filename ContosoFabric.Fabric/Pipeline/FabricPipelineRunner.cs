@@ -58,7 +58,9 @@ public sealed record FabricPipelineRunResult(
     FabricProvisioningResult Provisioning,
     IReadOnlyList<string> UploadedFiles,
     IReadOnlyList<FabricJobResult> Jobs,
-    string GeneratedDataFolder);
+    string GeneratedDataFolder,
+    string? ReceiptPath = null,
+    string? ReceiptWarning = null);
 
 public sealed class FabricPipelineRunner
 {
@@ -360,6 +362,16 @@ public sealed class FabricPipelineRunner
         string generatedRoot,
         IProgress<PipelineProgress>? progress = null,
         CancellationToken cancellationToken = default)
+        => await PipelineRunReceipt.ExecuteAsync(project, generatedRoot, progress,
+            (tracked, receipt) => RunCoreAsync(project, repositoryRoot, generatedRoot, receipt, tracked, cancellationToken));
+
+    private async Task<FabricPipelineRunResult> RunCoreAsync(
+        FabricProject project,
+        string repositoryRoot,
+        string generatedRoot,
+        PipelineRunReceipt receipt,
+        IProgress<PipelineProgress>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         PipelinePlanner.Build(project);
         EnsureLiveSupported(project);
@@ -391,6 +403,7 @@ public sealed class FabricPipelineRunner
             var dataStop = project.StopAfter > PipelineStage.Gold ? PipelineStage.Gold : project.StopAfter;
             var dataProject = project with { StopAfter = dataStop };
             prepared = await PrepareAsync(dataProject, progress, cancellationToken);
+            receipt.RecordProvisioning(prepared);
 
             if (dataProject.IncludesBronze)
             {
@@ -413,6 +426,7 @@ public sealed class FabricPipelineRunner
                     apiMessages,
                     cancellationToken);
                 jobs.Add(bronzeJob);
+                receipt.RecordJob(bronzeJob);
                 progress?.Report(new PipelineProgress(PipelineStage.Bronze, PipelineExecutionState.Completed, "Bronze materialization completed"));
             }
 
@@ -427,6 +441,7 @@ public sealed class FabricPipelineRunner
                     apiMessages,
                     cancellationToken);
                 jobs.Add(silverJob);
+                receipt.RecordJob(silverJob);
                 progress?.Report(new PipelineProgress(PipelineStage.Silver, PipelineExecutionState.Completed, "Silver transformation completed"));
             }
 
@@ -441,6 +456,7 @@ public sealed class FabricPipelineRunner
                     apiMessages,
                     cancellationToken);
                 jobs.Add(goldJob);
+                receipt.RecordJob(goldJob);
                 progress?.Report(new PipelineProgress(PipelineStage.Gold, PipelineExecutionState.Completed, "Gold model completed"));
             }
         }
@@ -451,6 +467,7 @@ public sealed class FabricPipelineRunner
             var biProject = project with { StartFrom = biStart };
             var biPrepared = await PrepareAsync(biProject, progress, cancellationToken);
             prepared = prepared is null ? biPrepared : Merge(prepared, biPrepared);
+            receipt.RecordProvisioning(prepared);
 
             if (biProject.IncludesSemanticModel)
                 progress?.Report(new PipelineProgress(PipelineStage.SemanticModel, PipelineExecutionState.Completed, $"Direct Lake semantic model published: {biPrepared.SemanticModel!.DisplayName}"));
@@ -542,7 +559,7 @@ public sealed class FabricPipelineRunner
     private static IProgress<string> StageMessages(
         IProgress<PipelineProgress>? progress,
         PipelineStage stage)
-        => new Progress<string>(message =>
+        => new InlineProgress<string>(message =>
             progress?.Report(new PipelineProgress(stage, PipelineExecutionState.Running, message)));
 
     private static void EnsureLiveSupported(FabricProject project)
