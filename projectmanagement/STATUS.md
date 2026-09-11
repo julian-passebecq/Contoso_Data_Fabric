@@ -1,3 +1,5 @@
+> **2026-09-11 takeover:** The user has ended the multi-agent sprint workflow for cost reasons. Start with [handover/README.md](../handover/README.md). The historical status/process below is retained as evidence; S01 remains unimplemented and unaccepted. The Pro successor owns continuation.
+
 # Current delivery state
 
 Updated: 2026-09-08 by tech lead.

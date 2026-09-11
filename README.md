@@ -1,3 +1,5 @@
+> **Pro AI takeover (2026-09-11):** Start with [the handover](handover/README.md) for current status, remaining outcomes, tests and Git inventory.
+
 # Contoso Data Generator V2 + Fabric Builder
 
 This repository keeps the original **Contoso Data Generator V2** C# engine and adds a native .NET 8 desktop application for parameterized Microsoft Fabric pipelines.
